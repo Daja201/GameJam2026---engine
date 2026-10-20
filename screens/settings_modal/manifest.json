@@ -1,0 +1,10 @@
+{
+  "id": "settings_modal",
+  "display_name": "Settings",
+  "controller": "SettingsModalController",
+  "input_profile": "menu-nav",
+  "background": null,
+  "ui_windows": ["default_panel"],
+  "transition_in": "instant",
+  "transition_out": "instant"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "terminal_output",
+  "display_name": "Terminal",
+  "skin": "terminal_output",
+  "anchor": "center",
+  "modal": false,
+  "size": { "width": 280, "height": 170 },
+  "layout": "free",
+  "elements": [
+    { "id": "output", "type": "scrollable-text", "x": 4, "y": 4, "width": 272, "height": 140, "text": "" }
+  ]
+}

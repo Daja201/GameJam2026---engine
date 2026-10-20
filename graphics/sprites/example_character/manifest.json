@@ -1,0 +1,27 @@
+{
+  "id": "example_character",
+  "display_name": "Example Character",
+  "type": "character",
+  "frame_size": { "width": 16, "height": 24 },
+  "pivot": { "x": 0.5, "y": 1 },
+  "directionality": {
+    "mode": "4-dir",
+    "directions": ["south", "east", "north", "west"]
+  },
+  "states": {
+    "idle": {
+      "type": "static-per-direction",
+      "source": "idle_{direction}.png"
+    },
+    "walk": {
+      "type": "animated-per-direction",
+      "frame_rate": 8,
+      "loop": true,
+      "frame_count": 4,
+      "source": "walk_{direction}_{frame:03d}.png",
+      "fallback": "idle"
+    }
+  },
+  "hitbox": { "width": 10, "height": 6, "offset_y": 18 },
+  "scale": 1
+}

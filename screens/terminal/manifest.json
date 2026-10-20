@@ -1,0 +1,10 @@
+{
+  "id": "terminal",
+  "display_name": "Terminal",
+  "controller": "TerminalScreenController",
+  "input_profile": "text-entry",
+  "background": null,
+  "ui_windows": ["terminal_output"],
+  "transition_in": "crt-flicker",
+  "transition_out": "instant"
+}

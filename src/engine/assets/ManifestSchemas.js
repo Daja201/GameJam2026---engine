@@ -125,10 +125,16 @@ export const SPRITE_MANIFEST_SCHEMA = {
  */
 export const BACKGROUND_MANIFEST_SCHEMA = {
   type: 'object',
-  required: ['id', 'layers'],
+  // FIX (was inconsistent with module 05's BackgroundLoader, which branches on `manifest.type`
+  // and never saw it in this schema): `type` is now required here, with the exact 3 values
+  // BackgroundLoader.js switches on.
+  required: ['id', 'type', 'layers'],
   properties: {
     id: ID_SCHEMA,
     display_name: { type: 'string' },
+    type: { type: 'string', enum: ['parallax-layered', 'tilemap', 'static'] },
+    // 'static' is authored as a single-entry `layers` array (BackgroundLoader reads layer 0);
+    // 'tilemap' may use an empty `layers: []` when it has no separate parallax art.
     layers: {
       type: 'array',
       items: {
@@ -136,23 +142,31 @@ export const BACKGROUND_MANIFEST_SCHEMA = {
         required: ['image'],
         properties: {
           image: { type: 'string', minLength: 1 },
-          depth_layer: { type: 'string', enum: ['far', 'mid', 'near'] },
+          // FIX (was `depth_layer`, a name BackgroundLoader never read): renamed to `depth` to
+          // match `layer.depth` in BackgroundLoader.js. Accepts either a named band or a raw
+          // Phaser depth number.
+          depth: { type: ['string', 'number'] },
           scroll_factor: { type: 'number', min: 0, max: 1 },
         },
       },
     },
     tilemap: {
       type: 'object',
-      required: ['tiled_json', 'tileset_image', 'tileset_name'],
+      required: ['source', 'tileset_image'],
       properties: {
-        tiled_json: { type: 'string', minLength: 1 },
+        // FIX (was `tiled_json`): renamed to `source` to match `manifest.tilemap.source` used
+        // by both PreloadQueueBuilder (as the load path) and BackgroundLoader (as the basis for
+        // the registered cache key `${id}:tilemap`).
+        source: { type: 'string', minLength: 1 },
         tileset_image: { type: 'string', minLength: 1 },
-        tileset_name: { type: 'string', minLength: 1 },
         collision_layer: { type: 'string', minLength: 1 },
       },
     },
     ambient_tint: { type: 'string', pattern: /^#[0-9a-fA-F]{6}$/ },
   },
+  requiredWhen: [
+    { field: 'type', equals: 'tilemap', require: ['tilemap'] },
+  ],
 };
 
 /**

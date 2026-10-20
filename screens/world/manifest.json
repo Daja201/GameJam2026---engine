@@ -1,0 +1,10 @@
+{
+  "id": "world",
+  "display_name": "World",
+  "controller": "WorldScreenController",
+  "input_profile": "movement",
+  "background": "example_room",
+  "ui_windows": [],
+  "transition_in": "fade",
+  "transition_out": "fade"
+}

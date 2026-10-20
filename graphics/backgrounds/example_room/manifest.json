@@ -1,0 +1,9 @@
+{
+  "id": "example_room",
+  "display_name": "Example Room",
+  "type": "static",
+  "layers": [
+    { "image": "room.png" }
+  ],
+  "ambient_tint": "#dde8ff"
+}

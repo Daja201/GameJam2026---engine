@@ -116,7 +116,7 @@ export function queueBackgroundAssets(scene, manifest) {
     const mapKey = `${manifest.id}:tilemap`;
     const tilesetKey = `${manifest.id}:tileset`;
     if (!scene.cache.tilemap.exists(mapKey)) {
-      scene.load.tilemapTiledJSON(mapKey, resolvePath(folder, manifest.tilemap.tiled_json));
+      scene.load.tilemapTiledJSON(mapKey, resolvePath(folder, manifest.tilemap.source));
     }
     if (!scene.textures.exists(tilesetKey)) {
       scene.load.image(tilesetKey, resolvePath(folder, manifest.tilemap.tileset_image));

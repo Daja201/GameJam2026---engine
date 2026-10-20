@@ -1,0 +1,19 @@
+{
+  "id": "default_panel",
+  "display_name": "Settings",
+  "skin": "default_panel",
+  "anchor": "center",
+  "modal": true,
+  "size": { "width": 160, "height": 140 },
+  "layout": "vertical-list",
+  "elements": [
+    { "id": "title", "type": "label", "text": "Settings" },
+    { "id": "music_label", "type": "label", "text": "Music volume" },
+    { "id": "music_slider", "type": "slider", "bind": "audio.music", "min": 0, "max": 1, "width": 96 },
+    { "id": "sfx_label", "type": "label", "text": "SFX volume" },
+    { "id": "sfx_slider", "type": "slider", "bind": "audio.sfx", "min": 0, "max": 1, "width": 96 },
+    { "id": "crt_label", "type": "label", "text": "CRT scanlines" },
+    { "id": "crt_toggle", "type": "toggle", "bind": "video.crtEnabled" },
+    { "id": "close_button", "type": "button", "text": "Close", "action": "close-window" }
+  ]
+}

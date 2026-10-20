@@ -1,0 +1,22 @@
+{
+  "movement": {
+    "UP": "move-up",
+    "DOWN": "move-down",
+    "LEFT": "move-left",
+    "RIGHT": "move-right",
+    "E": "interact",
+    "ENTER": "confirm",
+    "ESC": "cancel"
+  },
+  "text-entry": {
+    "ENTER": "text-enter",
+    "BACKSPACE": "text-backspace",
+    "ESC": "cancel"
+  },
+  "menu-nav": {
+    "UP": "menu-up",
+    "DOWN": "menu-down",
+    "ENTER": "confirm",
+    "ESC": "cancel"
+  }
+}
