@@ -15,7 +15,7 @@
  * @type {{ sprites: string[], backgrounds: string[], screens: string[], windows: string[] }}
  */
 export const MANIFEST_PATHS = {
-  sprites: ['graphics/sprites/example_character/manifest.json'],
+  sprites: ['graphics/sprites/main_char/manifest.json'],
   backgrounds: ['graphics/backgrounds/example_room/manifest.json'],
   screens: [
     'screens/world/manifest.json',

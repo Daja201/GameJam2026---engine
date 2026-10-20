@@ -27,7 +27,11 @@ export class DisplayManagerClass {
    * @returns {void}
    */
   applyScale(game, scale) {
+    if (this._applying) return;       // guard proti re-entry
+    if (game.scale.zoom === scale) return; // nic se nemění, netřeba volat setZoom znovu
+    this._applying = true;
     game.scale.setZoom(scale);
+    this._applying = false;
   }
 
   /**
@@ -37,12 +41,10 @@ export class DisplayManagerClass {
    * @returns {void}
    */
   watchResize(game) {
-    // Assumption: the browser window size is the available space to fit into.
-    const refit = () => {
-      this.applyScale(game, this.getBestIntegerScale(window.innerWidth, window.innerHeight));
-    };
-    game.scale.on('resize', refit);
-    refit();
+    game.scale.on('resize', () => {
+      const scale = this.getBestIntegerScale(window.innerWidth, window.innerHeight);
+      this.applyScale(game, scale);
+    });
   }
 }
 

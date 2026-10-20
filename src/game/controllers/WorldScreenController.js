@@ -31,7 +31,7 @@ export class WorldScreenController extends ScreenController {
   onEnter(params) {
     const { scene } = this.engine;
 
-    this.actor = new Actor(scene, 'example_character', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2);
+    this.actor = new Actor(scene, 'main_char', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2);
     scene.cameras.main.startFollow(this.actor.sprite, true);
 
     const pcX = INTERNAL_WIDTH / 2 + 40;
