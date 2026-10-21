@@ -5,7 +5,7 @@
     "LEFT": "move-left",
     "RIGHT": "move-right",
     "E": "interact",
-    "ENTER": "confirm",
+    "Q": "toggle-mode",
     "ESC": "cancel"
   },
   "text-entry": {

@@ -25,6 +25,14 @@
       "frame_count": 6,
       "source": "Idle/animations/Walk/{direction}/frame_{frame:03d}.png",
       "fallback": "idle"
+    },
+    "attack": {
+      "type": "animated-per-direction",
+      "frame_rate": 14,
+      "loop": false,
+      "frame_count": 6,
+      "source": "Fighting/animations/Cross_Punch/{direction}/frame_{frame:03d}.png",
+      "fallback": "idle"
     }
   },
   "hitbox": { "width": 14, "height": 10, "offset_y": 6 },

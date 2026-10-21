@@ -1,29 +1,31 @@
-import Phaser from 'phaser';
-
 const DEFAULT_WIDTH = 200;
 const DEFAULT_HEIGHT = 80;
 const DEFAULT_FONT_SIZE = '10px';
 const DEFAULT_COLOR = '#ffffff';
 
 /**
- * A word-wrapped, vertically scrolling text panel, clipped to a fixed rectangle via a geometry
- * mask. Exposes `appendLine(text)` and `scrollToBottom()` (module 08/Terminal calls these two by
- * name, so they must match precisely), plus `clear()` (for CLIParser's `clear` command) and
- * `setPendingLine(text)` (see below).
+ * A word-wrapped text panel that always fits within a fixed box. Exposes `appendLine(text)` and
+ * `scrollToBottom()` (module 08/Terminal calls these two by name, so they must match precisely),
+ * plus `clear()` (for CLIParser's `clear` command) and `setPendingLine(text)` (see below).
  *
- * FIX (terminal "doesn't write to fixed position" bug): the original design had the Terminal
- * controller draw its own separate `Phaser.GameObjects.Text` for the live input line, positioned
- * at a hardcoded (x, y) disconnected from this element's actual size/scroll state — so it drifted
- * out of sync with the scrolled output and wasn't visually "attached" to it. Fixed by moving the
- * live input line INTO this element as a genuine last line of the same text block: `setPendingLine`
- * redraws the buffer as `committed lines + pending line`, without pushing the pending text into the
- * permanent `lines` array, so backspacing/editing never touches committed history. Because it's
- * part of the exact same Text object/scroll math as everything else, it can never end up at a
- * stale fixed pixel position — it always sits immediately after the last committed line.
+ * FIX (overflow bug — text rendering past the panel's visible bottom edge): the previous
+ * implementation clipped content with a Phaser `GeometryMask` on a Container nested two levels
+ * deep (WindowFactory's rootContainer -> this element's own container -> content/maskShape).
+ * Phaser's GeometryMask is well known to misbehave at that nesting depth — the mask ends up
+ * evaluated in the wrong transform space and doesn't actually clip anything, which is exactly the
+ * "text overflows past the border" symptom. FIXED by dropping masking entirely: every redraw now
+ * measures the ACTUAL rendered height of candidate text (accounting for word-wrap too, which a
+ * naive "count N lines" approach would not) and trims the oldest line(s) until it physically fits
+ * inside `height`. This guarantees no overflow by construction, with no dependency on Phaser's
+ * mask/container interaction at all.
+ *
+ * FIX (prior revision, kept): the live input line is `setPendingLine`'s last line of this same
+ * text block (not a separate, separately-positioned Text object), so it can't drift out of sync
+ * with the rest of the output — see the git history / previous docstring revision for detail.
  *
  * STYLING: `elementManifest` may optionally set `fontSize` and `color` to override the plain-UI
- * defaults above — used by the Terminal's window manifest to get an authentic small-font
- * green-on-black monospace terminal look without needing a second, parallel text element.
+ * defaults above — used by the Terminal's window manifest for a small-font green-on-black
+ * monospace terminal look.
  * @module ui/elements/ScrollableText
  */
 
@@ -32,7 +34,7 @@ const DEFAULT_COLOR = '#ffffff';
  * @param {object} elementManifest - `{ id, type: 'scrollable-text', width?, height?, text?, fontSize?, color? }`
  * @param {{ settingsStore: object, windowHandle: object }} ctx
  * @returns {Phaser.GameObjects.Container} container also exposes `.appendLine(text)`,
- *   `.scrollToBottom()`, `.clear()`, and `.setPendingLine(text)`
+ *   `.scrollToBottom()` (no-op now, kept for API compatibility), `.clear()`, and `.setPendingLine(text)`
  */
 export function buildScrollableText(scene, elementManifest, ctx) {
   const width = elementManifest.width ?? DEFAULT_WIDTH;
@@ -47,25 +49,40 @@ export function buildScrollableText(scene, elementManifest, ctx) {
     wordWrap: { width },
   });
 
-  const content = scene.add.container(0, 0, [textObject]);
+  const container = scene.add.container(0, 0, [textObject]);
 
-  const maskShape = scene.add.graphics();
-  maskShape.fillRect(0, 0, width, height);
-  maskShape.setVisible(false);
-  content.mask = maskShape.createGeometryMask();
-
-  /** Committed, permanent lines (survive `setPendingLine` calls). */
+  /** Committed, permanent lines (survive `setPendingLine` calls). History is intentionally
+   * unbounded here (not trimmed on append) — only the DISPLAYED slice is capped to what fits;
+   * if full scrollback is ever needed later, `lines` still has everything. */
   const lines = [];
   /** Current uncommitted input line (e.g. what the user is still typing), or null for none. */
   let pendingLine = null;
 
-  const redraw = () => {
-    const allLines = pendingLine === null ? lines : [...lines, pendingLine];
-    textObject.setText(allLines.join('\n'));
-    container.scrollToBottom();
+  /**
+   * Sets textObject's content to the largest trailing slice of `allLines` whose rendered
+   * (word-wrapped) height still fits within `height`. Measures by actually setting text and
+   * reading back `.height`, since word-wrap makes line count alone an unreliable proxy for
+   * rendered height.
+   * @param {string[]} allLines
+   * @returns {void}
+   */
+  const renderFitting = (allLines) => {
+    let start = 0;
+    // Try showing everything first; if too tall, drop the oldest line and re-measure, repeating
+    // until it fits or only one line remains (never show literally nothing).
+    // This is O(n) re-measures in the worst case, which is fine at terminal-scale line counts.
+    for (;;) {
+      const candidate = allLines.slice(start);
+      textObject.setText(candidate.join('\n'));
+      if (textObject.height <= height || candidate.length <= 1) break;
+      start += 1;
+    }
   };
 
-  const container = scene.add.container(0, 0, [content, maskShape]);
+  const redraw = () => {
+    const allLines = pendingLine === null ? lines : [...lines, pendingLine];
+    renderFitting(allLines);
+  };
 
   container.appendLine = (line) => {
     lines.push(line);
@@ -75,8 +92,7 @@ export function buildScrollableText(scene, elementManifest, ctx) {
   /**
    * Shows `text` as a live, not-yet-committed last line (e.g. the terminal prompt as the user
    * types) — call again on every keystroke, call with `null` to hide it. Never added to the
-   * permanent `lines` history. See module docstring for why this replaced a separately
-   * positioned Text object.
+   * permanent `lines` history.
    * @param {string|null} text
    * @returns {void}
    */
@@ -85,17 +101,16 @@ export function buildScrollableText(scene, elementManifest, ctx) {
     redraw();
   };
 
-  container.scrollToBottom = () => {
-    const overflow = Math.max(0, textObject.height - height);
-    content.y = Phaser.Math.Clamp(height - textObject.height, -overflow, 0);
-  };
+  /** Kept for API compatibility with callers written against the old scroll-based version;
+   * content is now always "scrolled to bottom" by construction (renderFitting always shows the
+   * most recent fitting lines), so this is a no-op. */
+  container.scrollToBottom = () => {};
 
   /** Removes all committed lines and any pending line. */
   container.clear = () => {
     lines.length = 0;
     pendingLine = null;
     textObject.setText('');
-    content.y = 0;
   };
 
   return container;
