@@ -107,6 +107,14 @@ export const WindowFactory = {
 
     const rootContainer = scene.add.container(x, y);
     rootContainer.setDepth(DEPTH.UI_WINDOW);
+    // FIX: the engine runs every screen inside ONE Phaser Scene/camera (ScreenManager docstring),
+    // and WorldScreenController calls cameras.main.startFollow(player). Without scrollFactor 0,
+    // this window's position (computed in fixed INTERNAL_WIDTH/HEIGHT coordinates) gets dragged
+    // around by however far the camera has scrolled to follow the player — so it visually drifts
+    // off-center the moment the player has walked away from the origin. Pinning scrollFactor to 0
+    // makes every UI window screen-fixed regardless of camera movement, which is what "centered"
+    // actually requires here.
+    rootContainer.setScrollFactor(0);
 
     /** @type {Phaser.GameObjects.Rectangle|null} */
     let overlay = null;
@@ -114,6 +122,7 @@ export const WindowFactory = {
       overlay = scene.add.rectangle(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT, 0x000000, 0.5);
       overlay.setOrigin(0, 0);
       overlay.setDepth(DEPTH.UI_MODAL_OVERLAY);
+      overlay.setScrollFactor(0); // same reasoning as rootContainer above — must stay screen-fixed
       overlay.setInteractive(); // no handler: this alone swallows clicks to anything below it
     }
 

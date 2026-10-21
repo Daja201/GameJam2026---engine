@@ -8,23 +8,26 @@ import { LoopManager } from '../../engine/loop/LoopManager.js';
 const FRAGMENT_ID = 'terminal-root';
 /** Beat (ms) between a successful crack and popping back to the World. */
 const POP_DELAY_MS = 900;
+/** How often (ms) the input-line cursor toggles between visible/hidden, for a realistic blink. */
+const CURSOR_BLINK_MS = 450;
 
 /**
  * Example "Terminal" screen: composes module 08's `CLIParser` with module 07's
  * `scrollable-text` element (via the `terminal_output` window, this screen's one `ui_window`)
  * and module 08's `CRTOverlay`.
  *
- * INPUT-LINE DESIGN NOTE (a real gap this reconciles): module 07's `text-input` element only
- * binds its buffer to a `SettingsStore` path (see `TextInput.js`) — it has no way to hand an
- * arbitrary submitted line to a callback, which is exactly what a terminal prompt needs (pass
- * the line to `CLIParser.run`, not write it to a settings key). So this controller manages its
- * own small input buffer directly, the same way `TextInput.js` does internally, rendered as a
- * plain prompt line inside the window's own container (not built through `WindowFactory`).
+ * FIX (this revision): the input line used to be a second, separately positioned
+ * `Phaser.GameObjects.Text` with a hardcoded (x, y) — it could visually drift out of sync with
+ * the scrollable output below it. It now lives INSIDE the `scrollable-text` element itself via
+ * `ScrollableText`'s new `setPendingLine(text)` (see that file's docstring) — the prompt is
+ * always the literal last line of the same scrolling text block, so it can never end up at a
+ * stale fixed position again. A blinking block cursor is appended to make it read as a real
+ * terminal rather than a static label.
  *
- * Also note: `ScreenManager` already forwards every abstract InputRouter action to the active
- * screen's `onInput(action, event)` (see its constructor) — so, like `WorldScreenController`,
- * this controller reacts to `text-char`/`text-backspace`/`text-enter`/`cancel` from `onInput`
- * rather than subscribing to `InputRouter` directly.
+ * `ScreenManager` already forwards every abstract InputRouter action to the active screen's
+ * `onInput(action, event)` — so, like `WorldScreenController`, this controller reacts to
+ * `text-char`/`text-backspace`/`text-enter`/`cancel` from `onInput` rather than subscribing to
+ * `InputRouter` directly.
  * @module game/controllers/TerminalScreenController
  */
 export class TerminalScreenController extends ScreenController {
@@ -38,15 +41,14 @@ export class TerminalScreenController extends ScreenController {
     // built it and stored the handle on `this.windows` before calling onEnter.
     const outputHandle = this.windows[0];
     this.output = outputHandle.getElement('output');
-    this.output.appendLine('fake-kali v0.1 -- type "help" to begin');
+    this.output.appendLine('=== fake-kali v0.1 ===');
+    this.output.appendLine('type "help" to begin');
+    this.output.appendLine('');
 
     this.buffer = '';
-    this.promptText = scene.add.text(4, 148, '> ', {
-      fontFamily: 'monospace',
-      fontSize: '10px',
-      color: '#8aff8a',
-    });
-    outputHandle.container.add(this.promptText);
+    this._cursorOn = true;
+    this._blinkAccum = 0;
+    this._redrawPrompt();
 
     this._onCrackSuccess = () => {
       LoopManager.addFragment(FRAGMENT_ID);
@@ -80,20 +82,29 @@ export class TerminalScreenController extends ScreenController {
     }
   }
 
-  /** @returns {void} @private */
+  /** @param {number} time @param {number} delta @returns {void} */
+  onUpdate(time, delta) {
+    this._blinkAccum += delta;
+    if (this._blinkAccum >= CURSOR_BLINK_MS) {
+      this._blinkAccum = 0;
+      this._cursorOn = !this._cursorOn;
+      this._redrawPrompt();
+    }
+  }
+
+  /** Redraws the live (uncommitted) input line as the scrollable text's last line, with a
+   * blinking block cursor — see module docstring for why this replaced a separate Text object.
+   * @returns {void} @private */
   _redrawPrompt() {
-    this.promptText.setText(`> ${this.buffer}`);
+    const cursor = this._cursorOn ? '\u2588' : ' '; // U+2588 FULL BLOCK, classic terminal caret
+    this.output.setPendingLine(`> ${this.buffer}${cursor}`);
   }
 
   /** @returns {void} */
   onExit() {
     this.engine.scene.events.off('terminal:crack-success', this._onCrackSuccess);
     this.crt.destroy();
-    this.promptText.destroy();
   }
-
-  /** @param {number} time @param {number} delta @returns {void} */
-  onUpdate(time, delta) {}
 
   /** @returns {void} */
   onPause() {}

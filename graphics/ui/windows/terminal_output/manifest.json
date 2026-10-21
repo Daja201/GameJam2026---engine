@@ -4,9 +4,19 @@
   "skin": "terminal_output",
   "anchor": "center",
   "modal": false,
-  "size": { "width": 280, "height": 170 },
+  "size": { "width": 440, "height": 230 },
   "layout": "free",
   "elements": [
-    { "id": "output", "type": "scrollable-text", "x": 4, "y": 4, "width": 272, "height": 140, "text": "" }
+    {
+      "id": "output",
+      "type": "scrollable-text",
+      "x": 10,
+      "y": 8,
+      "width": 420,
+      "height": 214,
+      "fontSize": "8px",
+      "color": "#33ff33",
+      "text": ""
+    }
   ]
 }

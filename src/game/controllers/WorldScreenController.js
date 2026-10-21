@@ -1,5 +1,6 @@
 import { ScreenController } from '../../engine/screens/ScreenController.js';
 import { Actor } from '../../engine/sprites/Actor.js';
+import { Companion } from '../companions/Companion.js';
 import { InteractiveObject } from '../../engine/world/InteractiveObject.js';
 import { isWithinRadius } from '../../engine/world/ProximityDetector.js';
 import { INTERNAL_WIDTH, INTERNAL_HEIGHT } from '../../engine/display/constants.js';
@@ -33,6 +34,11 @@ export class WorldScreenController extends ScreenController {
 
     this.actor = new Actor(scene, 'main_char', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2);
     scene.cameras.main.startFollow(this.actor.sprite, true);
+
+    // Companion cat: trails the player with a short lag (see Companion.js). Reused unmodified
+    // from here on by `onUpdate`/`onExit` — nothing else in this controller needs to know how
+    // the follow behavior works internally.
+    this.cat = new Companion(scene, 'cat_companion', this.actor.sprite);
 
     const pcX = INTERNAL_WIDTH / 2 + 40;
     const pcY = INTERNAL_HEIGHT / 2;
@@ -70,6 +76,7 @@ export class WorldScreenController extends ScreenController {
       this.actor.playState('idle');
     }
     this.actor.update(time, delta);
+    this.cat.update(time, delta);
 
     this.pc.showPrompt(isWithinRadius(this.actor.sprite, this.pc.zone, INTERACT_RADIUS));
 
@@ -103,6 +110,7 @@ export class WorldScreenController extends ScreenController {
   /** @returns {void} */
   onExit() {
     this.actor.sprite.destroy();
+    this.cat.destroy();
     this.pc.destroy();
     this.pcVisual.destroy();
   }
