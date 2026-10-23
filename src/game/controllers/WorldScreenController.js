@@ -199,10 +199,16 @@ export class WorldScreenController extends ScreenController {
     // Dedicated E key, polled directly in FIGHT mode so we can see both press AND release
     // (the abstract `interact` action only fires on press — see class-level INPUT DESIGN NOTE).
     this.attackKey = scene.input.keyboard.addKey('E');
-    this.showHitboxes = false;
+    this.showHitboxes = this.engine.settingsStore.get('video.showHitboxes');
     this.hitboxDebug = scene.add.graphics().setDepth(DEPTH.WORLD_FOREGROUND + 1);
-    this.hitboxDebug.setVisible(false);
-    this._onHitboxDebugKey = () => this.toggleHitboxDebug();
+    this.hitboxDebug.setVisible(this.showHitboxes);
+    this._unsubscribeHitboxSetting = this.engine.settingsStore.subscribe('video.showHitboxes', (value) => {
+      this.showHitboxes = Boolean(value);
+      this.hitboxDebug.setVisible(this.showHitboxes);
+    });
+    this._onHitboxDebugKey = () => {
+      if (this.engine.screenManager.topController === this) this.toggleHitboxDebug();
+    };
     scene.input.keyboard.on('keydown-H', this._onHitboxDebugKey);
 
     // Mode: NORMAL (E interacts) <-> FIGHT (E punches), toggled with Q.
@@ -386,8 +392,7 @@ export class WorldScreenController extends ScreenController {
    * @returns {void}
    */
   toggleHitboxDebug() {
-    this.showHitboxes = !this.showHitboxes;
-    this.hitboxDebug.setVisible(this.showHitboxes);
+    this.engine.settingsStore.set('video.showHitboxes', !this.showHitboxes);
     if (this.showHitboxes) this._drawHitboxDebug();
   }
 
@@ -529,6 +534,7 @@ export class WorldScreenController extends ScreenController {
   /** @returns {void} */
   onExit() {
     this.engine.scene.input.keyboard.off('keydown-H', this._onHitboxDebugKey);
+    this._unsubscribeHitboxSetting();
     if (this.worldCollider) this.engine.scene.physics.world.removeCollider(this.worldCollider);
     this.engine.scene.cameras.main.stopFollow();
     this.engine.scene.cameras.main.setBounds(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);

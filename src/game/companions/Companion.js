@@ -86,7 +86,9 @@ export class Companion {
         const ny = dy / dist;
         this.sprite.x += nx * step;
         this.sprite.y += ny * step;
-        this.actor.setDirectionFromVector(nx, ny, 'walk');
+        const leaderDx = this.leaderSprite.x - this.sprite.x;
+        const leaderDy = this.leaderSprite.y - this.sprite.y;
+        this.actor.setDirectionFromVector(leaderDx, leaderDy, 'walk');
       } else {
         if (leaderDirection) this.actor.setDirection(leaderDirection);
         this.actor.playState('idle');

@@ -4,7 +4,7 @@
   "controller": "SettingsModalController",
   "input_profile": "menu-nav",
   "background": null,
-  "ui_windows": ["default_panel"],
+  "ui_windows": [],
   "transition_in": "instant",
   "transition_out": "instant"
 }
