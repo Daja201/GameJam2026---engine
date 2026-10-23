@@ -63,9 +63,10 @@ export class Companion {
    * Call once per frame from the owning screen controller's onUpdate — same contract as `Actor.update`.
    * @param {number} time
    * @param {number} delta
+   * @param {string|null} [leaderDirection] - facing direction while the leader is moving
    * @returns {void}
    */
-  update(time, delta) {
+  update(time, delta, leaderDirection = null) {
     this._sinceLastSample += delta;
     if (this._sinceLastSample >= SAMPLE_INTERVAL_MS) {
       this._sinceLastSample = 0;
@@ -87,6 +88,7 @@ export class Companion {
         this.sprite.y += ny * step;
         this.actor.setDirectionFromVector(nx, ny, 'walk');
       } else {
+        if (leaderDirection) this.actor.setDirection(leaderDirection);
         this.actor.playState('idle');
       }
     }

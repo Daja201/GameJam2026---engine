@@ -3,7 +3,7 @@ import { Actor } from '../../engine/sprites/Actor.js';
 import { Companion } from '../companions/Companion.js';
 import { InteractiveObject } from '../../engine/world/InteractiveObject.js';
 import { isWithinRadius } from '../../engine/world/ProximityDetector.js';
-import { INTERNAL_WIDTH, INTERNAL_HEIGHT } from '../../engine/display/constants.js';
+import { INTERNAL_WIDTH, INTERNAL_HEIGHT, TILE_SIZE } from '../../engine/display/constants.js';
 import { DEPTH } from '../../engine/display/DepthLayers.js';
 import { LoopManager } from '../../engine/loop/LoopManager.js';
 import { FxManager } from '../../engine/loop/FxManager.js';
@@ -13,6 +13,7 @@ import { animKey } from '../../engine/sprites/AnimationFactory.js';
 const WALK_SPEED = 60;
 /** How close the player must be to the "PC" prop to interact with it. */
 const INTERACT_RADIUS = 28;
+const MAP_HEIGHT = TILE_SIZE * 9;
 
 /** Mode names. In 'normal' mode E interacts with the world; in 'fight' mode E punches. */
 const MODE_NORMAL = 'normal';
@@ -163,19 +164,22 @@ export class WorldScreenController extends ScreenController {
   onEnter(params) {
     const { scene } = this.engine;
 
-    this.actor = new Actor(scene, 'main_char', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2);
+    this.actor = new Actor(scene, 'main_char', INTERNAL_WIDTH / 2, 144);
+    scene.cameras.main.setBounds(0, 0, INTERNAL_WIDTH, MAP_HEIGHT);
     scene.cameras.main.startFollow(this.actor.sprite, true);
+    this.actor.sprite.body.setCollideWorldBounds(true);
+    const collisionLayer = this.background?.getCollisionLayer();
+    this.worldCollider = collisionLayer
+      ? scene.physics.add.collider(this.actor.sprite, collisionLayer)
+      : null;
 
     // Companion cat: trails the player with a short lag (see Companion.js). Reused unmodified
     // from here on by `onUpdate`/`onExit` — nothing else in this controller needs to know how
     // the follow behavior works internally.
     this.cat = new Companion(scene, 'cat_companion', this.actor.sprite);
 
-    const pcX = INTERNAL_WIDTH / 2 + 40;
-    const pcY = INTERNAL_HEIGHT / 2;
-    // Visual for the trigger zone — InteractiveObject itself only builds the invisible zone.
-    this.pcVisual = scene.add.rectangle(pcX, pcY, 14, 14, 0x334455).setDepth(DEPTH.WORLD_ENTITIES);
-    this.pcVisual.setStrokeStyle(1, 0x8aa8ff);
+    const pcX = INTERNAL_WIDTH / 2 + 32;
+    const pcY = 144;
 
     this.pc = new InteractiveObject(scene, pcX, pcY, {
       width: 20,
@@ -195,6 +199,11 @@ export class WorldScreenController extends ScreenController {
     // Dedicated E key, polled directly in FIGHT mode so we can see both press AND release
     // (the abstract `interact` action only fires on press — see class-level INPUT DESIGN NOTE).
     this.attackKey = scene.input.keyboard.addKey('E');
+    this.showHitboxes = false;
+    this.hitboxDebug = scene.add.graphics().setDepth(DEPTH.WORLD_FOREGROUND + 1);
+    this.hitboxDebug.setVisible(false);
+    this._onHitboxDebugKey = () => this.toggleHitboxDebug();
+    scene.input.keyboard.on('keydown-H', this._onHitboxDebugKey);
 
     // Mode: NORMAL (E interacts) <-> FIGHT (E punches), toggled with Q.
     this.mode = MODE_NORMAL;
@@ -248,14 +257,19 @@ export class WorldScreenController extends ScreenController {
     const { scene } = this.engine;
 
     if (this.mode === MODE_FIGHT) {
-      this._updateFightMode(delta);
+      this._updateFightMode();
     } else {
-      this._updateNormalMode(delta);
+      this._updateNormalMode();
     }
 
     this._syncActorOrigin();
     this.actor.update(time, delta);
-    this.cat.update(time, delta);
+    const { velocity } = this.actor.sprite.body;
+    const leaderDirection = velocity.x !== 0 || velocity.y !== 0
+      ? this.actor.currentDirection
+      : null;
+    this.cat.update(time, delta, leaderDirection);
+    if (this.showHitboxes) this._drawHitboxDebug();
 
     // In fight mode E punches rather than interacts, so the "[E] interact" prompt would be
     // misleading there — only show it in normal mode.
@@ -275,33 +289,43 @@ export class WorldScreenController extends ScreenController {
    */
   _syncActorOrigin() {
     const pivot = this.actor.manifest.pivot ?? { x: 0.5, y: 0.5 };
+    const baseWidth = this.actor.manifest.frame_size.width;
     const baseHeight = this.actor.manifest.frame_size.height;
+    const frameWidth = this.actor.sprite.frame.width || baseWidth;
     const frameHeight = this.actor.sprite.frame.height || this.actor.manifest.frame_size.height;
+    const centeredPaddingX = (frameWidth - baseWidth) / 2;
     const centeredPaddingY = (frameHeight - baseHeight) / 2;
+    const originX = (pivot.x * baseWidth + centeredPaddingX) / frameWidth;
     const originY = (pivot.y * baseHeight + centeredPaddingY) / frameHeight;
 
-    if (this.actor.sprite.originY !== originY || this.actor.sprite.originX !== pivot.x) {
-      this.actor.sprite.setOrigin(pivot.x, originY);
+    if (this.actor.sprite.originY !== originY || this.actor.sprite.originX !== originX) {
+      this.actor.sprite.setOrigin(originX, originY);
+    }
+
+    const hitbox = this.actor.manifest.hitbox;
+    if (hitbox) {
+      this.actor.sprite.body.setOffset(
+        (baseWidth - hitbox.width) / 2 + centeredPaddingX,
+        (hitbox.offset_y ?? 0) + centeredPaddingY,
+      );
     }
   }
 
   /**
    * Ordinary WASD movement + idle/walk, used in NORMAL mode.
    * @private
-   * @param {number} delta
    * @returns {void}
    */
-  _updateNormalMode(delta) {
+  _updateNormalMode() {
     const keys = this.moveKeys;
     const dx = (keys.right.isDown ? 1 : 0) - (keys.left.isDown ? 1 : 0);
     const dy = (keys.down.isDown ? 1 : 0) - (keys.up.isDown ? 1 : 0);
 
     if (dx !== 0 || dy !== 0) {
-      const step = (WALK_SPEED * delta) / 1000;
-      this.actor.sprite.x += dx * step;
-      this.actor.sprite.y += dy * step;
+      this._setMovementVelocity(dx, dy);
       this.actor.setDirectionFromVector(dx, dy, 'walk');
     } else {
+      this.actor.sprite.body.setVelocity(0, 0);
       this.actor.playState('idle');
     }
   }
@@ -309,10 +333,9 @@ export class WorldScreenController extends ScreenController {
   /**
    * FIGHT-mode movement + hold-to-punch. See class-level ATTACK doc for the full behavior.
    * @private
-   * @param {number} delta
    * @returns {void}
    */
-  _updateFightMode(delta) {
+  _updateFightMode() {
     const held = this.attackKey.isDown;
 
     if (held && !this.isPunching) {
@@ -328,21 +351,80 @@ export class WorldScreenController extends ScreenController {
       this._showFightStance();
     }
 
-    if (this.isPunching) return; // feet planted — see class-level ATTACK doc for why
+    if (this.isPunching) {
+      this.actor.sprite.body.setVelocity(0, 0);
+      return; // feet planted — see class-level ATTACK doc for why
+    }
 
     const keys = this.moveKeys;
     const dx = (keys.right.isDown ? 1 : 0) - (keys.left.isDown ? 1 : 0);
     const dy = (keys.down.isDown ? 1 : 0) - (keys.up.isDown ? 1 : 0);
 
     if (dx !== 0 || dy !== 0) {
-      const step = (WALK_SPEED * delta) / 1000;
-      this.actor.sprite.x += dx * step;
-      this.actor.sprite.y += dy * step;
+      this._setMovementVelocity(dx, dy);
       this.actor.setDirectionFromVector(dx, dy, 'walk');
       this._fightStanceDirection = null; // walking overrides the stance pose until it stops
     } else {
+      this.actor.sprite.body.setVelocity(0, 0);
       this._showFightStance();
     }
+  }
+
+  /**
+   * @private
+   * @param {number} dx
+   * @param {number} dy
+   * @returns {void}
+   */
+  _setMovementVelocity(dx, dy) {
+    const velocity = this.actor.sprite.body.velocity;
+    velocity.set(dx, dy).normalize().scale(WALK_SPEED);
+  }
+
+  /**
+   * Toggles red collision and interaction hitbox overlays. Press H in the world to toggle.
+   * @returns {void}
+   */
+  toggleHitboxDebug() {
+    this.showHitboxes = !this.showHitboxes;
+    this.hitboxDebug.setVisible(this.showHitboxes);
+    if (this.showHitboxes) this._drawHitboxDebug();
+  }
+
+  /**
+   * Redraws world collider tiles and entity/interaction bounds.
+   * @private
+   * @returns {void}
+   */
+  _drawHitboxDebug() {
+    const graphics = this.hitboxDebug;
+    graphics.clear();
+    graphics.lineStyle(1, 0xff3030, 0.95);
+    graphics.fillStyle(0xff3030, 0.18);
+
+    const collisionLayer = this.background?.getCollisionLayer();
+    if (collisionLayer) {
+      collisionLayer.forEachTile((tile) => {
+        if (!tile.collides) return;
+        const x = collisionLayer.tileToWorldX(tile.x);
+        const y = collisionLayer.tileToWorldY(tile.y);
+        graphics.fillRect(x, y, tile.width, tile.height);
+        graphics.strokeRect(x, y, tile.width, tile.height);
+      });
+    }
+
+    for (const sprite of [this.actor.sprite, this.cat.sprite]) {
+      const { body } = sprite;
+      graphics.strokeRect(body.x, body.y, body.width, body.height);
+    }
+
+    const zone = this.pc.zone;
+    graphics.strokeRect(
+      zone.x - zone.width / 2,
+      zone.y - zone.height / 2,
+      zone.width,
+      zone.height,
+    );
   }
 
   /**
@@ -446,6 +528,11 @@ export class WorldScreenController extends ScreenController {
 
   /** @returns {void} */
   onExit() {
+    this.engine.scene.input.keyboard.off('keydown-H', this._onHitboxDebugKey);
+    if (this.worldCollider) this.engine.scene.physics.world.removeCollider(this.worldCollider);
+    this.engine.scene.cameras.main.stopFollow();
+    this.engine.scene.cameras.main.setBounds(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+    this.hitboxDebug.destroy();
     this.actor.sprite.off('animationcomplete', this._onAttackAnimationComplete);
     for (const particle of this._attackParticles) {
       this.engine.scene.tweens.killTweensOf(particle);
@@ -455,7 +542,6 @@ export class WorldScreenController extends ScreenController {
     this.actor.sprite.destroy();
     this.cat.destroy();
     this.pc.destroy();
-    this.pcVisual.destroy();
     this.modeLabel.destroy();
     this.settingsButton.destroy();
   }

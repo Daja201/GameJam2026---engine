@@ -1,9 +1,11 @@
 {
   "id": "example_room",
-  "display_name": "Example Room",
-  "type": "static",
-  "layers": [
-    { "image": "room.png" }
-  ],
-  "ambient_tint": "#dde8ff"
+  "display_name": "Simulation Courtyard",
+  "type": "tilemap",
+  "layers": [],
+  "tilemap": {
+    "source": "map.json",
+    "tileset_image": "../tileset.png",
+    "collision_layer": "Collision"
+  }
 }
