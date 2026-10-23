@@ -4,7 +4,7 @@
   "skin": "default_panel",
   "anchor": "center",
   "modal": true,
-  "size": { "width": 160, "height": 140 },
+  "size": { "width": 480, "height": 270 },
   "layout": "vertical-list",
   "elements": [
     { "id": "title", "type": "label", "text": "Settings" },

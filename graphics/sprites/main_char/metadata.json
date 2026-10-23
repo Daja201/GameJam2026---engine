@@ -5,7 +5,7 @@
       "character": {
         "id": "60aa0c64-c106-4eb2-8bbc-eff1a9595d54",
         "name": "Idle",
-        "prompt": "A teenage student, average build, wearing a dark hoodie with the hood down, jeans, sneakers. Short messy hair peeking out from under the hoodie collar. Backpack on their back. Neutral, friendly expression. No visible face detail beyond basic eyes \u2014 keep it simple and readable at small size.  Color palette: muted, slightly desaturated colors (navy/grey hoodie, denim blue jeans, warm skin tone) \u2014 fits a moody indoor/school-simulation setting. Boy",
+        "prompt": "A teenage student, average build, wearing a dark hoodie with the hood down, jeans, sneakers. Short messy hair peeking out from under the hoodie collar. Backpack on their back. Neutral, friendly expression. No visible face detail beyond basic eyes — keep it simple and readable at small size.  Color palette: muted, slightly desaturated colors (navy/grey hoodie, denim blue jeans, warm skin tone) — fits a moody indoor/school-simulation setting. Boy",
         "size": {
           "width": 32,
           "height": 32
@@ -96,8 +96,104 @@
           }
         }
       }
+    },
+    {
+      "character": {
+        "id": "ab44c9c1-3b0c-4839-b6af-8bbcd8f90b77",
+        "name": "Fighting",
+        "prompt": "A teenage student, average build, wearing a dark hoodie with the hood down, jeans, sneakers. Short messy hair peeking out from under the hoodie collar. Backpack on their back. Neutral, friendly expression. No visible face detail beyond basic eyes — keep it simple and readable at small size.  Color palette: muted, slightly desaturated colors (navy/grey hoodie, denim blue jeans, warm skin tone) — fits a moody indoor/school-simulation setting. Boy",
+        "size": {
+          "width": 32,
+          "height": 32
+        },
+        "template_id": "mannequin",
+        "directions": 8,
+        "view": "high top-down",
+        "created_at": "2026-10-21T07:22:18.124493+00:00"
+      },
+      "folder": "Fighting",
+      "frames": {
+        "rotations": {
+          "south": "Fighting/rotations/south.png",
+          "south-east": "Fighting/rotations/south-east.png",
+          "east": "Fighting/rotations/east.png",
+          "north-east": "Fighting/rotations/north-east.png",
+          "north": "Fighting/rotations/north.png",
+          "north-west": "Fighting/rotations/north-west.png",
+          "west": "Fighting/rotations/west.png",
+          "south-west": "Fighting/rotations/south-west.png"
+        },
+        "animations": {
+          "Cross_Punch": {
+            "north-east": [
+              "Fighting/animations/Cross_Punch/north-east/frame_000.png",
+              "Fighting/animations/Cross_Punch/north-east/frame_001.png",
+              "Fighting/animations/Cross_Punch/north-east/frame_002.png",
+              "Fighting/animations/Cross_Punch/north-east/frame_003.png",
+              "Fighting/animations/Cross_Punch/north-east/frame_004.png",
+              "Fighting/animations/Cross_Punch/north-east/frame_005.png"
+            ],
+            "south": [
+              "Fighting/animations/Cross_Punch/south/frame_000.png",
+              "Fighting/animations/Cross_Punch/south/frame_001.png",
+              "Fighting/animations/Cross_Punch/south/frame_002.png",
+              "Fighting/animations/Cross_Punch/south/frame_003.png",
+              "Fighting/animations/Cross_Punch/south/frame_004.png",
+              "Fighting/animations/Cross_Punch/south/frame_005.png"
+            ],
+            "west": [
+              "Fighting/animations/Cross_Punch/west/frame_000.png",
+              "Fighting/animations/Cross_Punch/west/frame_001.png",
+              "Fighting/animations/Cross_Punch/west/frame_002.png",
+              "Fighting/animations/Cross_Punch/west/frame_003.png",
+              "Fighting/animations/Cross_Punch/west/frame_004.png",
+              "Fighting/animations/Cross_Punch/west/frame_005.png"
+            ],
+            "south-east": [
+              "Fighting/animations/Cross_Punch/south-east/frame_000.png",
+              "Fighting/animations/Cross_Punch/south-east/frame_001.png",
+              "Fighting/animations/Cross_Punch/south-east/frame_002.png",
+              "Fighting/animations/Cross_Punch/south-east/frame_003.png",
+              "Fighting/animations/Cross_Punch/south-east/frame_004.png",
+              "Fighting/animations/Cross_Punch/south-east/frame_005.png"
+            ],
+            "south-west": [
+              "Fighting/animations/Cross_Punch/south-west/frame_000.png",
+              "Fighting/animations/Cross_Punch/south-west/frame_001.png",
+              "Fighting/animations/Cross_Punch/south-west/frame_002.png",
+              "Fighting/animations/Cross_Punch/south-west/frame_003.png",
+              "Fighting/animations/Cross_Punch/south-west/frame_004.png",
+              "Fighting/animations/Cross_Punch/south-west/frame_005.png"
+            ],
+            "east": [
+              "Fighting/animations/Cross_Punch/east/frame_000.png",
+              "Fighting/animations/Cross_Punch/east/frame_001.png",
+              "Fighting/animations/Cross_Punch/east/frame_002.png",
+              "Fighting/animations/Cross_Punch/east/frame_003.png",
+              "Fighting/animations/Cross_Punch/east/frame_004.png",
+              "Fighting/animations/Cross_Punch/east/frame_005.png"
+            ],
+            "north-west": [
+              "Fighting/animations/Cross_Punch/north-west/frame_000.png",
+              "Fighting/animations/Cross_Punch/north-west/frame_001.png",
+              "Fighting/animations/Cross_Punch/north-west/frame_002.png",
+              "Fighting/animations/Cross_Punch/north-west/frame_003.png",
+              "Fighting/animations/Cross_Punch/north-west/frame_004.png",
+              "Fighting/animations/Cross_Punch/north-west/frame_005.png"
+            ],
+            "north": [
+              "Fighting/animations/Cross_Punch/north/frame_000.png",
+              "Fighting/animations/Cross_Punch/north/frame_001.png",
+              "Fighting/animations/Cross_Punch/north/frame_002.png",
+              "Fighting/animations/Cross_Punch/north/frame_003.png",
+              "Fighting/animations/Cross_Punch/north/frame_004.png",
+              "Fighting/animations/Cross_Punch/north/frame_005.png"
+            ]
+          }
+        }
+      }
     }
   ],
   "export_version": "3.1",
-  "export_date": "2026-10-20T09:00:22.730759"
+  "export_date": "2026-10-23T17:42:23.307696"
 }

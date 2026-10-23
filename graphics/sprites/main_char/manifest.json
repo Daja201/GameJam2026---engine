@@ -18,6 +18,12 @@
       "loop": true,
       "source": "Idle/rotations/{direction}.png"
     },
+    "fight": {
+      "type": "static-per-direction",
+      "frame_rate": 1,
+      "loop": true,
+      "source": "Fighting/rotations/{direction}.png"
+    },
     "walk": {
       "type": "animated-per-direction",
       "frame_rate": 10,
