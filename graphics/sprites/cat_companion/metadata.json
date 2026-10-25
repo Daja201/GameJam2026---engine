@@ -1,0 +1,116 @@
+{
+  "group_id": "8937ef57-03dc-42b2-98a4-428b36969c26",
+  "states": [
+    {
+      "character": {
+        "id": "0c56ac04-7442-4a65-9061-6f51bca7311e",
+        "name": "Idle",
+        "prompt": "This cat features a white domestic shorthair base with dark grey-to-black patches covering its erect ears and the sides of its crown. Its most distinctive visual feature is its \"polite\" expression, created by a flat, wide, tight-lipped mouth pressed into a subtle curve, paired with a bright pink nose and exceptionally large, fully dilated dark pupils. The head has smooth, rounded proportions with soft, plush cheeks, giving it an iconic, slightly awkward human-like expression.",
+        "size": {
+          "width": 32,
+          "height": 32
+        },
+        "template_id": "cat",
+        "directions": 8,
+        "view": "high top-down",
+        "created_at": "2026-10-21T06:38:40.994059+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {
+          "Walk": {
+            "east": [
+              "Idle/animations/Walk/east/frame_000.png",
+              "Idle/animations/Walk/east/frame_001.png",
+              "Idle/animations/Walk/east/frame_002.png",
+              "Idle/animations/Walk/east/frame_003.png"
+            ],
+            "north-east": [
+              "Idle/animations/Walk/north-east/frame_000.png",
+              "Idle/animations/Walk/north-east/frame_001.png",
+              "Idle/animations/Walk/north-east/frame_002.png",
+              "Idle/animations/Walk/north-east/frame_003.png"
+            ],
+            "south-west": [
+              "Idle/animations/Walk/south-west/frame_000.png",
+              "Idle/animations/Walk/south-west/frame_001.png",
+              "Idle/animations/Walk/south-west/frame_002.png",
+              "Idle/animations/Walk/south-west/frame_003.png"
+            ],
+            "north": [
+              "Idle/animations/Walk/north/frame_000.png",
+              "Idle/animations/Walk/north/frame_001.png",
+              "Idle/animations/Walk/north/frame_002.png",
+              "Idle/animations/Walk/north/frame_003.png"
+            ],
+            "north-west": [
+              "Idle/animations/Walk/north-west/frame_000.png",
+              "Idle/animations/Walk/north-west/frame_001.png",
+              "Idle/animations/Walk/north-west/frame_002.png",
+              "Idle/animations/Walk/north-west/frame_003.png"
+            ],
+            "south-east": [
+              "Idle/animations/Walk/south-east/frame_000.png",
+              "Idle/animations/Walk/south-east/frame_001.png",
+              "Idle/animations/Walk/south-east/frame_002.png",
+              "Idle/animations/Walk/south-east/frame_003.png"
+            ],
+            "south": [
+              "Idle/animations/Walk/south/frame_000.png",
+              "Idle/animations/Walk/south/frame_001.png",
+              "Idle/animations/Walk/south/frame_002.png",
+              "Idle/animations/Walk/south/frame_003.png"
+            ],
+            "west": [
+              "Idle/animations/Walk/west/frame_000.png",
+              "Idle/animations/Walk/west/frame_001.png",
+              "Idle/animations/Walk/west/frame_002.png",
+              "Idle/animations/Walk/west/frame_003.png"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "character": {
+        "id": "724d317f-4aca-42cb-ae28-0d43e877a37f",
+        "name": "sitting down on back",
+        "prompt": "This cat features a white domestic shorthair base with dark grey-to-black patches covering its erect ears and the sides of its crown. Its most distinctive visual feature is its \"polite\" expression, created by a flat, wide, tight-lipped mouth pressed into a subtle curve, paired with a bright pink nose and exceptionally large, fully dilated dark pupils. The head has smooth, rounded proportions with soft, plush cheeks, giving it an iconic, slightly awkward human-like expression.",
+        "size": {
+          "width": 32,
+          "height": 32
+        },
+        "template_id": "cat",
+        "directions": 8,
+        "view": "high top-down",
+        "created_at": "2026-10-25T19:17:36.950765+00:00"
+      },
+      "folder": "sitting_down_on_back",
+      "frames": {
+        "rotations": {
+          "south": "sitting_down_on_back/rotations/south.png",
+          "south-east": "sitting_down_on_back/rotations/south-east.png",
+          "east": "sitting_down_on_back/rotations/east.png",
+          "north-east": "sitting_down_on_back/rotations/north-east.png",
+          "north": "sitting_down_on_back/rotations/north.png",
+          "north-west": "sitting_down_on_back/rotations/north-west.png",
+          "west": "sitting_down_on_back/rotations/west.png",
+          "south-west": "sitting_down_on_back/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-25T19:21:13.455102"
+}

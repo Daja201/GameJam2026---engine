@@ -6,6 +6,7 @@
     "RIGHT": "move-right",
     "E": "interact",
     "Q": "toggle-mode",
+    "L": "open-quest-log",
     "ESC": "cancel"
   },
   "text-entry": {
@@ -17,6 +18,13 @@
     "UP": "menu-up",
     "DOWN": "menu-down",
     "ENTER": "confirm",
+    "ESC": "cancel"
+  },
+  "quest-log": {
+    "UP": "menu-up",
+    "DOWN": "menu-down",
+    "ENTER": "confirm",
+    "L": "cancel",
     "ESC": "cancel"
   }
 }

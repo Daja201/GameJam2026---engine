@@ -26,6 +26,12 @@ import { buildListElement } from './elements/ListElement.js';
 
 const ROW_HEIGHT = 24;
 const GRID_COLUMNS = 3;
+// FIX (auto-size): used only when manifest.size is NOT given — the minimum a panel can shrink
+// to, and the breathing room left around measured content so elements don't sit flush against
+// the panel's edge/nineslice border.
+const MIN_PANEL_WIDTH = 64;
+const MIN_PANEL_HEIGHT = 48;
+const AUTO_SIZE_PADDING = 12;
 
 /** Element type name -> builder function. */
 const ELEMENT_BUILDERS = {
@@ -81,6 +87,43 @@ function layoutElements(elementContainers, elementManifests, layout) {
 }
 
 /**
+ * Measures an element container's own footprint in its local space. Must be called before the
+ * container is positioned by `layoutElements` and before it's added to `rootContainer` — while
+ * it's still a detached, (0,0)-rooted container, `getBounds()` returns exactly its own
+ * local-space bounding box (no parent transform to subtract out).
+ * @param {Phaser.GameObjects.Container} container
+ * @returns {{width:number, height:number}}
+ */
+function measureElement(container) {
+  const bounds = container.getBounds();
+  return { width: bounds.width, height: bounds.height };
+}
+
+/**
+ * FIX (auto-size): computes the smallest panel size that fits every laid-out element, used when
+ * `manifest.size` isn't given in the manifest. Elements are already positioned (by
+ * `layoutElements`, called beforehand) in container-local space; this just finds the
+ * furthest-right and furthest-down edge across all of them and adds padding.
+ * @param {Phaser.GameObjects.Container[]} elementContainers - already positioned
+ * @param {{width:number, height:number}[]} sizes - same order/index as elementContainers,
+ *   from `measureElement` (captured before positioning)
+ * @returns {{width:number, height:number}}
+ */
+function computeAutoSize(elementContainers, sizes) {
+  let maxRight = 0;
+  let maxBottom = 0;
+  elementContainers.forEach((container, i) => {
+    const size = sizes[i];
+    maxRight = Math.max(maxRight, container.x + size.width);
+    maxBottom = Math.max(maxBottom, container.y + size.height);
+  });
+  return {
+    width: Math.max(MIN_PANEL_WIDTH, maxRight + AUTO_SIZE_PADDING * 2),
+    height: Math.max(MIN_PANEL_HEIGHT, maxBottom + AUTO_SIZE_PADDING * 2),
+  };
+}
+
+/**
  * @typedef {Object} WindowHandle
  * @property {Phaser.GameObjects.Container} container
  * @property {() => void} close
@@ -101,29 +144,77 @@ export const WindowFactory = {
    * @throws {Error} if an element's `type` has no registered builder
    */
   build(scene, manifest, ctx) {
-    const panelWidth = manifest.size?.width ?? 200;
-    const panelHeight = manifest.size?.height ?? 120;
+    // FIX (auto-size): build + measure elements BEFORE deciding panel size/position, so a
+    // manifest that omits `size` gets a panel sized to fit its content instead of the old
+    // hardcoded 200x120 fallback. Elements are built detached (no parent, no windowHandle
+    // dependency on container state) so measuring them here has no side effects.
+    const windowHandleRef = {}; // filled in once `handle` exists below, so elements can reference it
+    const elementCtx = { settingsStore: ctx.settingsStore, inputRouter: ctx.inputRouter, windowHandle: windowHandleRef };
+
+    const elementsById = new Map();
+    const elementContainers = [];
+    const elementSizes = [];
+    for (const elementManifest of manifest.elements) {
+      const builder = ELEMENT_BUILDERS[elementManifest.type];
+      if (!builder) throw new Error(`WindowFactory: no builder registered for element type "${elementManifest.type}"`);
+      const elementContainer = builder(scene, elementManifest, elementCtx);
+      elementsById.set(elementManifest.id, elementContainer);
+      elementContainers.push(elementContainer);
+      elementSizes.push(measureElement(elementContainer)); // must happen before layoutElements moves it
+    }
+    layoutElements(elementContainers, manifest.elements, manifest.layout);
+
+    const autoSizing = !manifest.size;
+    const autoSize = autoSizing ? computeAutoSize(elementContainers, elementSizes) : null;
+    const panelWidth = manifest.size?.width ?? autoSize.width;
+    const panelHeight = manifest.size?.height ?? autoSize.height;
+    if (autoSizing) {
+      // Shift every element inward so content doesn't sit flush against the auto-sized panel's
+      // edge — the same padding computeAutoSize() budgeted for when it measured maxRight/maxBottom.
+      elementContainers.forEach((container) => {
+        container.setPosition(container.x + AUTO_SIZE_PADDING, container.y + AUTO_SIZE_PADDING);
+      });
+    }
     const { x, y } = resolveAnchorPosition(manifest.anchor, panelWidth, panelHeight);
 
     const rootContainer = scene.add.container(x, y);
     rootContainer.setDepth(DEPTH.UI_WINDOW);
     // FIX: the engine runs every screen inside ONE Phaser Scene/camera (ScreenManager docstring),
-    // and WorldScreenController calls cameras.main.startFollow(player). Without scrollFactor 0,
-    // this window's position (computed in fixed INTERNAL_WIDTH/HEIGHT coordinates) gets dragged
-    // around by however far the camera has scrolled to follow the player — so it visually drifts
-    // off-center the moment the player has walked away from the origin. Pinning scrollFactor to 0
-    // makes every UI window screen-fixed regardless of camera movement, which is what "centered"
-    // actually requires here.
-    rootContainer.setScrollFactor(0);
+    // and WorldScreenController calls cameras.main.startFollow(player). Phaser's input/hit-test
+    // system does NOT correctly account for a non-default scrollFactor (known Phaser limitation):
+    // rendering respects setScrollFactor(0) fine, so the window still looks screen-fixed, but
+    // click hit-testing keeps using the camera's scroll, so the clickable area drifts by roughly
+    // how far the camera has scrolled since boot. Walk further -> bigger offset; walk far enough
+    // and the hit-box lands entirely outside the visible window and nothing registers at all.
+    // FIX (different approach): leave scrollFactor at its default (1) — the code path Phaser's
+    // input system is actually built and tested for — and instead manually re-position the
+    // container every frame to cancel out the camera's scroll: screenPos = basePos + camera.scroll.
+    // That keeps it visually pinned to the screen exactly like scrollFactor(0) did, but hit-testing
+    // now works against the container's *real* position, which always matches what's drawn.
+    const basePosition = { x, y };
+    const repositionRoot = () => {
+      const cam = scene.cameras.main;
+      rootContainer.setPosition(basePosition.x + cam.scrollX, basePosition.y + cam.scrollY);
+    };
+    repositionRoot();
+    scene.events.on('update', repositionRoot);
 
     /** @type {Phaser.GameObjects.Rectangle|null} */
     let overlay = null;
+    let repositionOverlay = null;
     if (manifest.modal) {
       overlay = scene.add.rectangle(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT, 0x000000, 0.5);
       overlay.setOrigin(0, 0);
       overlay.setDepth(DEPTH.UI_MODAL_OVERLAY);
-      overlay.setScrollFactor(0); // same reasoning as rootContainer above — must stay screen-fixed
       overlay.setInteractive(); // no handler: this alone swallows clicks to anything below it
+      // Same fix as rootContainer: keep scrollFactor default and manually track the camera so the
+      // overlay's actual (hit-tested) position always matches its visible, screen-fixed position.
+      repositionOverlay = () => {
+        const cam = scene.cameras.main;
+        overlay.setPosition(cam.scrollX, cam.scrollY);
+      };
+      repositionOverlay();
+      scene.events.on('update', repositionOverlay);
     }
 
     const panel = scene.add.nineslice(
@@ -133,23 +224,9 @@ export const WindowFactory = {
     ).setOrigin(0, 0);
     rootContainer.add(panel);
 
-    /** @type {Map<string, Phaser.GameObjects.Container>} elementId -> its built container */
-    const elementsById = new Map();
-    const elementContainers = [];
-
-    const windowHandleRef = {}; // filled in once `handle` exists below, so elements can reference it
-    const elementCtx = { settingsStore: ctx.settingsStore, inputRouter: ctx.inputRouter, windowHandle: windowHandleRef };
-
-    for (const elementManifest of manifest.elements) {
-      const builder = ELEMENT_BUILDERS[elementManifest.type];
-      if (!builder) throw new Error(`WindowFactory: no builder registered for element type "${elementManifest.type}"`);
-      const elementContainer = builder(scene, elementManifest, elementCtx);
-      elementsById.set(elementManifest.id, elementContainer);
-      elementContainers.push(elementContainer);
-      rootContainer.add(elementContainer);
-    }
-
-    layoutElements(elementContainers, manifest.elements, manifest.layout);
+    // Elements were built, measured, and positioned above (before panel size was even known);
+    // now that rootContainer exists, parent them into it.
+    elementContainers.forEach((container) => rootContainer.add(container));
 
     const handle = {
       container: rootContainer,
@@ -157,6 +234,13 @@ export const WindowFactory = {
         elementContainers.forEach((container) => {
           if (typeof container.unsubscribe === 'function') container.unsubscribe();
         });
+        // FIX: must remove the per-frame camera-tracking listeners before destroying, or the
+        // scene keeps calling repositionRoot/repositionOverlay on destroyed GameObjects every
+        // frame (Phaser logs no error for this, it just silently no-ops/throws inside a
+        // try-less callback) — a slow leak and a source of "ghost" console errors after closing
+        // several windows in one play session.
+        scene.events.off('update', repositionRoot);
+        if (repositionOverlay) scene.events.off('update', repositionOverlay);
         rootContainer.destroy();
         if (overlay) overlay.destroy();
       },

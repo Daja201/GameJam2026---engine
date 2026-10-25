@@ -11,9 +11,26 @@
         background: #000;
         overflow: hidden;
       }
+      /*
+        FIX (fullscreen click hitboxes): requestFullscreen() must be called on THIS wrapper, not
+        on Phaser's own <canvas> — browsers' UA stylesheets force a fullscreened element's
+        width/height to 100% with !important, which would override the exact pixel size Phaser
+        sets on its canvas for integer-pixel zoom. That mismatch (CSS size != what Phaser's
+        pointer math thinks the canvas is) is what offsets every click. Fullscreening this div
+        instead lets the browser stretch IT, while the canvas inside stays a normal child that
+        Phaser sizes/centers itself — nothing fights Phaser's own styling.
+      */
+      #game-root {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
     </style>
   </head>
   <body>
+    <div id="game-root"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

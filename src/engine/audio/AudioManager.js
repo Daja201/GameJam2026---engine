@@ -29,7 +29,7 @@ let currentMusic = null;
  */
 function effectiveCategoryVolume(category) {
   if (SettingsStore.get('audio.muted')) return 0;
-  return SettingsStore.get('audio.master') * SettingsStore.get(`audio.${category}`);
+  return SettingsStore.get(`audio.${category}`);
 }
 
 export const AudioManager = {
@@ -46,9 +46,6 @@ export const AudioManager = {
     // Apply live slider changes to the currently playing music immediately. SFX don't need a
     // subscription since each one reads the current volume fresh at play time.
     SettingsStore.subscribe('audio.music', () => {
-      if (currentMusic) currentMusic.setVolume(effectiveCategoryVolume('music'));
-    });
-    SettingsStore.subscribe('audio.master', () => {
       if (currentMusic) currentMusic.setVolume(effectiveCategoryVolume('music'));
     });
     SettingsStore.subscribe('audio.muted', () => {

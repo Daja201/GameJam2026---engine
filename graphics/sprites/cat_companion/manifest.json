@@ -18,6 +18,12 @@
       "loop": true,
       "source": "Idle/rotations/{direction}.png"
     },
+    "sit": {
+      "type": "static-per-direction",
+      "frame_rate": 1,
+      "loop": true,
+      "source": "sitting_down_on_back/rotations/{direction}.png"
+    },
     "walk": {
       "type": "animated-per-direction",
       "frame_rate": 8,

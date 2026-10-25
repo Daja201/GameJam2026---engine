@@ -33,6 +33,12 @@ const FOLLOW_SPEED = 48;
  * Raised well above a "just don't jitter" value so the cat visibly keeps its distance even once
  * caught up, instead of standing shoulder-to-shoulder with the player. */
 const ARRIVE_THRESHOLD = 22;
+/** How long (ms) the companion must stay stopped (not walking) before it sits down. Long enough
+ * that a brief pause (player stops for a beat, trail catches up) doesn't flip the sprite in and
+ * out of `sit` constantly — it only settles in once it's genuinely been doing nothing for a
+ * while. Uses `cat_companion`'s existing `sit` state (graphics/sprites/cat_companion/manifest.json),
+ * which was already authored into the sprite manifest but never played anywhere. */
+const SIT_AFTER_IDLE_MS = 2500;
 
 export class Companion {
   /**
@@ -52,6 +58,9 @@ export class Companion {
     /** @type {{x:number,y:number}[]} oldest first */
     this._trail = [];
     this._sinceLastSample = 0;
+    /** How long (ms), continuously, the companion has been stopped (not walking). Reset to 0 the
+     * instant it moves again; see `SIT_AFTER_IDLE_MS`. */
+    this._idleMs = 0;
   }
 
   /** @returns {Phaser.Physics.Arcade.Sprite} convenience passthrough, matches Actor's own field name */
@@ -63,10 +72,9 @@ export class Companion {
    * Call once per frame from the owning screen controller's onUpdate — same contract as `Actor.update`.
    * @param {number} time
    * @param {number} delta
-   * @param {string|null} [leaderDirection] - facing direction while the leader is moving
    * @returns {void}
    */
-  update(time, delta, leaderDirection = null) {
+  update(time, delta) {
     this._sinceLastSample += delta;
     if (this._sinceLastSample >= SAMPLE_INTERVAL_MS) {
       this._sinceLastSample = 0;
@@ -86,12 +94,15 @@ export class Companion {
         const ny = dy / dist;
         this.sprite.x += nx * step;
         this.sprite.y += ny * step;
-        const leaderDx = this.leaderSprite.x - this.sprite.x;
-        const leaderDy = this.leaderSprite.y - this.sprite.y;
-        this.actor.setDirectionFromVector(leaderDx, leaderDy, 'walk');
+        this.actor.setDirectionFromVector(nx, ny, 'walk');
+        this._idleMs = 0; // moving again — any sit-down progress is cancelled
       } else {
-        if (leaderDirection) this.actor.setDirection(leaderDirection);
-        this.actor.playState('idle');
+        // Stopped: stand around for a bit first (reads as "still alert"), then settle into the
+        // `sit` state once it's been doing nothing for SIT_AFTER_IDLE_MS straight. The leading
+        // standing phase matters — without it the cat would flop down the instant it arrives,
+        // then immediately have to stand back up for the next short player pause.
+        this._idleMs += delta;
+        this.actor.playState(this._idleMs >= SIT_AFTER_IDLE_MS ? 'sit' : 'idle');
       }
     }
 

@@ -1,3 +1,5 @@
+import Phaser from 'phaser';
+
 const DEFAULT_WIDTH = 200;
 const DEFAULT_HEIGHT = 80;
 const DEFAULT_FONT_SIZE = '10px';
@@ -26,6 +28,14 @@ const DEFAULT_COLOR = '#ffffff';
  * STYLING: `elementManifest` may optionally set `fontSize` and `color` to override the plain-UI
  * defaults above — used by the Terminal's window manifest for a small-font green-on-black
  * monospace terminal look.
+ *
+ * CLICKING A LINE: set `container.onLineClick = (lineIndex) => {...}` any time after this
+ * returns (same opt-in pattern as `ListElement`'s `ctx.onItemClick`) to get a callback with the
+ * index into the *committed* `lines` array (NOT the currently-visible slice — `renderFitting` may
+ * have trimmed the oldest lines off-screen, so a raw visible-row count would point at the wrong
+ * line the moment that happens). `lineIndex` lines up with whatever order the caller built via
+ * `appendLine`, so a caller tracking "which block did line N belong to" (e.g. QuestLogScreenController
+ * mapping lines back to quests) can use it directly.
  * @module ui/elements/ScrollableText
  */
 
@@ -34,7 +44,8 @@ const DEFAULT_COLOR = '#ffffff';
  * @param {object} elementManifest - `{ id, type: 'scrollable-text', width?, height?, text?, fontSize?, color? }`
  * @param {{ settingsStore: object, windowHandle: object }} ctx
  * @returns {Phaser.GameObjects.Container} container also exposes `.appendLine(text)`,
- *   `.scrollToBottom()` (no-op now, kept for API compatibility), `.clear()`, and `.setPendingLine(text)`
+ *   `.scrollToBottom()` (no-op now, kept for API compatibility), `.clear()`, `.setPendingLine(text)`,
+ *   and the optional `.onLineClick(lineIndex)` hook described above
  */
 export function buildScrollableText(scene, elementManifest, ctx) {
   const width = elementManifest.width ?? DEFAULT_WIDTH;
@@ -58,6 +69,24 @@ export function buildScrollableText(scene, elementManifest, ctx) {
   /** Current uncommitted input line (e.g. what the user is still typing), or null for none. */
   let pendingLine = null;
 
+  /** Index into `lines` of whatever is currently the FIRST visible row (0 until trimming kicks
+   * in) — kept in sync by `renderFitting`. */
+  let renderedStartIndex = 0;
+
+  /**
+   * BUG FIX (click hit-testing pointed at the wrong quest/line): visible ROWS and committed
+   * LINES are not the same thing once word-wrap is involved — a single long `appendLine(...)`
+   * call (e.g. a quest description) can render as two or more visual rows. The previous
+   * pointerdown handler divided the click's local Y by one fixed `lineHeight` to get a row
+   * count and used THAT directly as an index into `lines`, which only happens to be correct
+   * for the first wrapped row of the first line; every row after any wrapped line is off by
+   * however many extra rows wrapping has added above it, so clicks land on the wrong quest
+   * (or on nothing) as soon as a description/title wraps. `rowOwners[visibleRow]` instead maps
+   * every actually-rendered visual row to its real `lines` index, rebuilt on every `redraw()`.
+   * @type {number[]}
+   */
+  let rowOwners = [];
+
   /**
    * Sets textObject's content to the largest trailing slice of `allLines` whose rendered
    * (word-wrapped) height still fits within `height`. Measures by actually setting text and
@@ -77,6 +106,18 @@ export function buildScrollableText(scene, elementManifest, ctx) {
       if (textObject.height <= height || candidate.length <= 1) break;
       start += 1;
     }
+    renderedStartIndex = start;
+
+    // Rebuild the visual-row -> real-line-index map (see `rowOwners` doc above). Each committed
+    // line is measured on its own, with the exact same font/wordWrap settings as the real text
+    // object, to find out how many rows IT ALONE renders as; that count of rows is then
+    // attributed to that line's real index in `lines`.
+    rowOwners = [];
+    allLines.slice(start).forEach((lineText, i) => {
+      rowHeightProbe.setText(lineText);
+      const rowCount = Math.max(1, Math.round(rowHeightProbe.height / lineHeight));
+      for (let r = 0; r < rowCount; r += 1) rowOwners.push(start + i);
+    });
   };
 
   const redraw = () => {
@@ -112,6 +153,32 @@ export function buildScrollableText(scene, elementManifest, ctx) {
     pendingLine = null;
     textObject.setText('');
   };
+
+  /** Optional per-line click hook; a no-op until a caller assigns one (see module docstring). */
+  container.onLineClick = null;
+
+  // One-line probe in the exact same style textObject uses, just to read a reliable per-line
+  // pixel height back from Phaser (word-wrapped multi-line height isn't a clean multiple of a
+  // single line's height, so measuring a lone line is the only accurate way to get this).
+  const lineHeightProbe = scene.add.text(0, 0, 'Mg', { fontFamily: 'monospace', fontSize, wordWrap: { width } });
+  const lineHeight = lineHeightProbe.height || 1;
+  lineHeightProbe.destroy();
+
+  // Reused every redraw to measure how many visual rows each individual committed line wraps
+  // to (see `rowOwners` / `renderFitting` above). Not a child of `container`, so it must be
+  // cleaned up explicitly when the container goes away, or it leaks a Text object + GL resources
+  // every time this element is rebuilt (e.g. every time the Quest Log is reopened).
+  const rowHeightProbe = scene.add.text(0, 0, '', { fontFamily: 'monospace', fontSize, wordWrap: { width } });
+  container.once('destroy', () => rowHeightProbe.destroy());
+
+  container.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
+  container.on('pointerdown', (pointer, localX, localY) => {
+    if (!container.onLineClick) return;
+    const visibleRow = Math.floor(localY / lineHeight);
+    const realIndex = rowOwners[visibleRow];
+    if (realIndex === undefined || realIndex < 0 || realIndex >= lines.length) return;
+    container.onLineClick(realIndex);
+  });
 
   return container;
 }

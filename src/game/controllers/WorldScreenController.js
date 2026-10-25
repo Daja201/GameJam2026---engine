@@ -3,17 +3,39 @@ import { Actor } from '../../engine/sprites/Actor.js';
 import { Companion } from '../companions/Companion.js';
 import { InteractiveObject } from '../../engine/world/InteractiveObject.js';
 import { isWithinRadius } from '../../engine/world/ProximityDetector.js';
-import { INTERNAL_WIDTH, INTERNAL_HEIGHT, TILE_SIZE } from '../../engine/display/constants.js';
+import { INTERNAL_WIDTH, INTERNAL_HEIGHT } from '../../engine/display/constants.js';
 import { DEPTH } from '../../engine/display/DepthLayers.js';
 import { LoopManager } from '../../engine/loop/LoopManager.js';
 import { FxManager } from '../../engine/loop/FxManager.js';
+import { QuestManager } from '../../engine/quest/QuestManager.js';
+import { createToastNotifier } from '../../engine/ui/ToastNotifier.js';
 import { animKey } from '../../engine/sprites/AnimationFactory.js';
+
+/** Toast accent colors by quest-event category — kept here (content), not in ToastNotifier (generic). */
+const TOAST_ACCENT_STARTED = 0x8aa8ff;
+const TOAST_ACCENT_PROGRESS = 0xffd27f;
+const TOAST_ACCENT_COMPLETE = 0x6fe39a;
 
 /** Walking speed, pixels per second. */
 const WALK_SPEED = 60;
 /** How close the player must be to the "PC" prop to interact with it. */
 const INTERACT_RADIUS = 28;
-const MAP_HEIGHT = TILE_SIZE * 9;
+
+/** How close the player must be to a scrap pickup to interact with it. */
+const PICKUP_RADIUS = 20;
+
+/**
+ * Quest content for this room (THIS controller's own example content — the quest engine,
+ * `engine/quest/QuestManager.js`, knows nothing about any of these ids; see its module docstring
+ * for the "no content coupling" reasoning). `world_pc`/`scrap_metal`/the `world` screen id here
+ * must exactly match what `/config/quests.default.json` references for those quests to progress.
+ */
+const WORLD_PC_INTERACT_ID = 'world_pc';
+const SCRAP_ITEM_ID = 'scrap_metal';
+const SCRAP_SPAWN_POINTS = [
+  { x: INTERNAL_WIDTH / 2 - 60, y: INTERNAL_HEIGHT / 2 - 40 },
+  { x: INTERNAL_WIDTH / 2 + 90, y: INTERNAL_HEIGHT / 2 + 50 },
+];
 
 /** Mode names. In 'normal' mode E interacts with the world; in 'fight' mode E punches. */
 const MODE_NORMAL = 'normal';
@@ -164,29 +186,41 @@ export class WorldScreenController extends ScreenController {
   onEnter(params) {
     const { scene } = this.engine;
 
-    this.actor = new Actor(scene, 'main_char', INTERNAL_WIDTH / 2, 144);
-    scene.cameras.main.setBounds(0, 0, INTERNAL_WIDTH, MAP_HEIGHT);
+    this.actor = new Actor(scene, 'main_char', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2);
     scene.cameras.main.startFollow(this.actor.sprite, true);
-    this.actor.sprite.body.setCollideWorldBounds(true);
-    const collisionLayer = this.background?.getCollisionLayer();
-    this.worldCollider = collisionLayer
-      ? scene.physics.add.collider(this.actor.sprite, collisionLayer)
-      : null;
 
     // Companion cat: trails the player with a short lag (see Companion.js). Reused unmodified
     // from here on by `onUpdate`/`onExit` — nothing else in this controller needs to know how
     // the follow behavior works internally.
     this.cat = new Companion(scene, 'cat_companion', this.actor.sprite);
 
-    const pcX = INTERNAL_WIDTH / 2 + 32;
-    const pcY = 144;
+    const pcX = INTERNAL_WIDTH / 2 + 40;
+    const pcY = INTERNAL_HEIGHT / 2;
+    // Visual for the trigger zone — InteractiveObject itself only builds the invisible zone.
+    this.pcVisual = scene.add.rectangle(pcX, pcY, 14, 14, 0x334455).setDepth(DEPTH.WORLD_ENTITIES);
+    this.pcVisual.setStrokeStyle(1, 0x8aa8ff);
 
     this.pc = new InteractiveObject(scene, pcX, pcY, {
       width: 20,
       height: 20,
       label: '[E] interact',
-      onInteract: () => this.engine.screenManager.push('terminal'),
+      onInteract: () => {
+        // Quest progress and the actual gameplay effect (opening the Terminal screen) are
+        // independent of each other on purpose: QuestManager doesn't know or care WHY this
+        // target was interacted with, and the Terminal would open the same way with zero
+        // quests assigned to it.
+        QuestManager.triggerInteract(WORLD_PC_INTERACT_ID);
+        this.engine.screenManager.push('terminal');
+      },
     });
+
+    // Scrap-metal pickups (this room's "getting some item" quest content — see SCRAP_SPAWN_POINTS'
+    // docstring above). Only as many are spawned as are still needed: if a previous session
+    // already collected some (QuestManager persists collected-item counts across reloads — see
+    // QuestManager.save()/load()), re-entering the World shouldn't let the player "re-collect"
+    // past what the quest actually still requires.
+    const alreadyCollected = QuestManager.getItemCount(SCRAP_ITEM_ID);
+    this.scrapPickups = SCRAP_SPAWN_POINTS.slice(alreadyCollected).map((point) => this._createScrapPickup(point.x, point.y));
 
     // WASD for movement (rewired from arrow keys; see class-level INPUT DESIGN NOTE).
     this.moveKeys = scene.input.keyboard.addKeys({
@@ -199,21 +233,10 @@ export class WorldScreenController extends ScreenController {
     // Dedicated E key, polled directly in FIGHT mode so we can see both press AND release
     // (the abstract `interact` action only fires on press — see class-level INPUT DESIGN NOTE).
     this.attackKey = scene.input.keyboard.addKey('E');
-    this.showHitboxes = this.engine.settingsStore.get('video.showHitboxes');
-    this.hitboxDebug = scene.add.graphics().setDepth(DEPTH.WORLD_FOREGROUND + 1);
-    this.hitboxDebug.setVisible(this.showHitboxes);
-    this._unsubscribeHitboxSetting = this.engine.settingsStore.subscribe('video.showHitboxes', (value) => {
-      this.showHitboxes = Boolean(value);
-      this.hitboxDebug.setVisible(this.showHitboxes);
-    });
-    this._onHitboxDebugKey = () => {
-      if (this.engine.screenManager.topController === this) this.toggleHitboxDebug();
-    };
-    scene.input.keyboard.on('keydown-H', this._onHitboxDebugKey);
 
     // Mode: NORMAL (E interacts) <-> FIGHT (E punches), toggled with Q.
     this.mode = MODE_NORMAL;
-    this.modeLabel = scene.add.text(4, 4, '', {
+    this.modeLabel = scene.add.text(4, 18, '', {
       fontFamily: 'monospace',
       fontSize: '10px',
       color: '#ffffff',
@@ -231,6 +254,50 @@ export class WorldScreenController extends ScreenController {
       originX: 1,
       onClick: () => this.engine.screenManager.push('settings_modal'),
     });
+
+    // Tracked-quest HUD line, top-left corner (ABOVE the mode label, see class docstring) —
+    // always shows whichever quest QuestManager considers "tracked" (auto-picked, or chosen by
+    // the player from the Quest Log screen's Active tab). [L] opens the Quest Log (see onInput).
+    this.questHudLabel = scene.add.text(4, 4, '', {
+      fontFamily: 'monospace',
+      fontSize: '8px',
+      color: '#aaffaa',
+      backgroundColor: '#000000aa',
+      padding: { x: 4, y: 2 },
+    });
+    this.questHudLabel.setScrollFactor(0);
+    this.questHudLabel.setDepth(DEPTH.UI_HUD);
+    this._refreshQuestHud();
+    this._onQuestsUpdated = () => this._refreshQuestHud();
+    QuestManager.events.on('quest:updated', this._onQuestsUpdated);
+
+    // Quest notifications: small top-right toasts for "started" / "progress" / "complete" — see
+    // ToastNotifier.js's module docstring for the design (familiar from most RPGs/quest-driven
+    // games). This controller owns the mapping from a quest event to a message + accent color;
+    // ToastNotifier itself has no idea what a "quest" is.
+    this.toasts = createToastNotifier(scene);
+    this._onQuestAssigned = ({ id }) => {
+      const quest = QuestManager.getQuest(id);
+      if (quest) this.toasts.show(`Quest Started: ${quest.title}`, { accentColor: TOAST_ACCENT_STARTED });
+    };
+    this._onQuestProgress = ({ questId, objectiveId, current, count }) => {
+      const quest = QuestManager.getQuest(questId);
+      const objective = quest?.objectives.find((o) => o.id === objectiveId);
+      // Only for an objective that's still short of its target — once an objective finishes,
+      // either the whole quest just completed (the 'quest:completed' toast below covers that) or
+      // this quest has more objectives left (no extra toast needed; the quest log always has the
+      // full picture). Keeps this to one toast per meaningful step, not two for the same moment.
+      if (quest && objective && !objective.done) {
+        this.toasts.show(`${quest.title}: ${objective.description} (${current}/${count})`, { accentColor: TOAST_ACCENT_PROGRESS });
+      }
+    };
+    this._onQuestCompleted = ({ id }) => {
+      const quest = QuestManager.getQuest(id);
+      if (quest) this.toasts.show(`Quest Complete: ${quest.title}`, { accentColor: TOAST_ACCENT_COMPLETE });
+    };
+    QuestManager.events.on('quest:assigned', this._onQuestAssigned);
+    QuestManager.events.on('quest:objective-progress', this._onQuestProgress);
+    QuestManager.events.on('quest:completed', this._onQuestCompleted);
 
     // Punching: true only while E is physically held down in FIGHT mode.
     this.isPunching = false;
@@ -263,23 +330,26 @@ export class WorldScreenController extends ScreenController {
     const { scene } = this.engine;
 
     if (this.mode === MODE_FIGHT) {
-      this._updateFightMode();
+      this._updateFightMode(delta);
     } else {
-      this._updateNormalMode();
+      this._updateNormalMode(delta);
     }
 
     this._syncActorOrigin();
     this.actor.update(time, delta);
-    const { velocity } = this.actor.sprite.body;
-    const leaderDirection = velocity.x !== 0 || velocity.y !== 0
-      ? this.actor.currentDirection
-      : null;
-    this.cat.update(time, delta, leaderDirection);
-    if (this.showHitboxes) this._drawHitboxDebug();
+    this.cat.update(time, delta);
 
     // In fight mode E punches rather than interacts, so the "[E] interact" prompt would be
     // misleading there — only show it in normal mode.
     this.pc.showPrompt(this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, this.pc.zone, INTERACT_RADIUS));
+
+    for (const pickup of this.scrapPickups) {
+      pickup.object.showPrompt(this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, pickup.object.zone, PICKUP_RADIUS));
+    }
+
+    // "Getting somewhere" quest progress: fed every frame, same way LoopManager/FxManager usage
+    // below is — QuestManager itself does the cheap no-op check when nothing's listening.
+    QuestManager.reportLocation('world', this.actor.sprite.x, this.actor.sprite.y);
 
     // Usage pattern documented at the top of module 09's FxManager.js.
     const level = LoopManager.glitchLevel();
@@ -295,43 +365,33 @@ export class WorldScreenController extends ScreenController {
    */
   _syncActorOrigin() {
     const pivot = this.actor.manifest.pivot ?? { x: 0.5, y: 0.5 };
-    const baseWidth = this.actor.manifest.frame_size.width;
     const baseHeight = this.actor.manifest.frame_size.height;
-    const frameWidth = this.actor.sprite.frame.width || baseWidth;
     const frameHeight = this.actor.sprite.frame.height || this.actor.manifest.frame_size.height;
-    const centeredPaddingX = (frameWidth - baseWidth) / 2;
     const centeredPaddingY = (frameHeight - baseHeight) / 2;
-    const originX = (pivot.x * baseWidth + centeredPaddingX) / frameWidth;
     const originY = (pivot.y * baseHeight + centeredPaddingY) / frameHeight;
 
-    if (this.actor.sprite.originY !== originY || this.actor.sprite.originX !== originX) {
-      this.actor.sprite.setOrigin(originX, originY);
-    }
-
-    const hitbox = this.actor.manifest.hitbox;
-    if (hitbox) {
-      this.actor.sprite.body.setOffset(
-        (baseWidth - hitbox.width) / 2 + centeredPaddingX,
-        (hitbox.offset_y ?? 0) + centeredPaddingY,
-      );
+    if (this.actor.sprite.originY !== originY || this.actor.sprite.originX !== pivot.x) {
+      this.actor.sprite.setOrigin(pivot.x, originY);
     }
   }
 
   /**
    * Ordinary WASD movement + idle/walk, used in NORMAL mode.
    * @private
+   * @param {number} delta
    * @returns {void}
    */
-  _updateNormalMode() {
+  _updateNormalMode(delta) {
     const keys = this.moveKeys;
     const dx = (keys.right.isDown ? 1 : 0) - (keys.left.isDown ? 1 : 0);
     const dy = (keys.down.isDown ? 1 : 0) - (keys.up.isDown ? 1 : 0);
 
     if (dx !== 0 || dy !== 0) {
-      this._setMovementVelocity(dx, dy);
+      const step = (WALK_SPEED * delta) / 1000;
+      this.actor.sprite.x += dx * step;
+      this.actor.sprite.y += dy * step;
       this.actor.setDirectionFromVector(dx, dy, 'walk');
     } else {
-      this.actor.sprite.body.setVelocity(0, 0);
       this.actor.playState('idle');
     }
   }
@@ -339,9 +399,10 @@ export class WorldScreenController extends ScreenController {
   /**
    * FIGHT-mode movement + hold-to-punch. See class-level ATTACK doc for the full behavior.
    * @private
+   * @param {number} delta
    * @returns {void}
    */
-  _updateFightMode() {
+  _updateFightMode(delta) {
     const held = this.attackKey.isDown;
 
     if (held && !this.isPunching) {
@@ -357,79 +418,21 @@ export class WorldScreenController extends ScreenController {
       this._showFightStance();
     }
 
-    if (this.isPunching) {
-      this.actor.sprite.body.setVelocity(0, 0);
-      return; // feet planted — see class-level ATTACK doc for why
-    }
+    if (this.isPunching) return; // feet planted — see class-level ATTACK doc for why
 
     const keys = this.moveKeys;
     const dx = (keys.right.isDown ? 1 : 0) - (keys.left.isDown ? 1 : 0);
     const dy = (keys.down.isDown ? 1 : 0) - (keys.up.isDown ? 1 : 0);
 
     if (dx !== 0 || dy !== 0) {
-      this._setMovementVelocity(dx, dy);
+      const step = (WALK_SPEED * delta) / 1000;
+      this.actor.sprite.x += dx * step;
+      this.actor.sprite.y += dy * step;
       this.actor.setDirectionFromVector(dx, dy, 'walk');
       this._fightStanceDirection = null; // walking overrides the stance pose until it stops
     } else {
-      this.actor.sprite.body.setVelocity(0, 0);
       this._showFightStance();
     }
-  }
-
-  /**
-   * @private
-   * @param {number} dx
-   * @param {number} dy
-   * @returns {void}
-   */
-  _setMovementVelocity(dx, dy) {
-    const velocity = this.actor.sprite.body.velocity;
-    velocity.set(dx, dy).normalize().scale(WALK_SPEED);
-  }
-
-  /**
-   * Toggles red collision and interaction hitbox overlays. Press H in the world to toggle.
-   * @returns {void}
-   */
-  toggleHitboxDebug() {
-    this.engine.settingsStore.set('video.showHitboxes', !this.showHitboxes);
-    if (this.showHitboxes) this._drawHitboxDebug();
-  }
-
-  /**
-   * Redraws world collider tiles and entity/interaction bounds.
-   * @private
-   * @returns {void}
-   */
-  _drawHitboxDebug() {
-    const graphics = this.hitboxDebug;
-    graphics.clear();
-    graphics.lineStyle(1, 0xff3030, 0.95);
-    graphics.fillStyle(0xff3030, 0.18);
-
-    const collisionLayer = this.background?.getCollisionLayer();
-    if (collisionLayer) {
-      collisionLayer.forEachTile((tile) => {
-        if (!tile.collides) return;
-        const x = collisionLayer.tileToWorldX(tile.x);
-        const y = collisionLayer.tileToWorldY(tile.y);
-        graphics.fillRect(x, y, tile.width, tile.height);
-        graphics.strokeRect(x, y, tile.width, tile.height);
-      });
-    }
-
-    for (const sprite of [this.actor.sprite, this.cat.sprite]) {
-      const { body } = sprite;
-      graphics.strokeRect(body.x, body.y, body.width, body.height);
-    }
-
-    const zone = this.pc.zone;
-    graphics.strokeRect(
-      zone.x - zone.width / 2,
-      zone.y - zone.height / 2,
-      zone.width,
-      zone.height,
-    );
   }
 
   /**
@@ -492,6 +495,65 @@ export class WorldScreenController extends ScreenController {
   }
 
   /**
+   * Builds one scrap-metal pickup: a small visible prop plus the InteractiveObject trigger zone,
+   * same construction shape as the PC above. On interact it credits `QuestManager.collectItem`
+   * once, then removes itself (both the visual and the trigger zone) so it can't be "collected"
+   * twice — `QuestManager.collectItem` itself has no notion of a single-use world pickup, that
+   * bookkeeping belongs entirely to this piece of example content.
+   * @private
+   * @param {number} x
+   * @param {number} y
+   * @returns {{ object: InteractiveObject, visual: Phaser.GameObjects.Rectangle }}
+   */
+  _createScrapPickup(x, y) {
+    const { scene } = this.engine;
+    const visual = scene.add.rectangle(x, y, 8, 8, 0xd4a23a).setDepth(DEPTH.WORLD_ENTITIES);
+    visual.setStrokeStyle(1, 0xffe8a0);
+
+    const entry = { object: null, visual };
+    entry.object = new InteractiveObject(scene, x, y, {
+      width: 16,
+      height: 16,
+      label: '[E] pick up',
+      onInteract: () => {
+        QuestManager.collectItem(SCRAP_ITEM_ID, 1);
+        entry.object.destroy();
+        entry.visual.destroy();
+        const index = this.scrapPickups.indexOf(entry);
+        if (index !== -1) this.scrapPickups.splice(index, 1);
+      },
+    });
+    return entry;
+  }
+
+  /** Longest the tracked-quest HUD line is allowed to get before truncating with "…". */
+  static QUEST_HUD_MAX_CHARS = 64;
+
+  /**
+   * Updates the top-left tracked-quest HUD line from `QuestManager.getTrackedQuest()`. Subscribed
+   * to `QuestManager`'s `'quest:updated'` event (see onEnter) so it stays correct even while this
+   * screen is the one earning the progress (e.g. picking up scrap updates it immediately, with no
+   * need to poll every frame). `QuestManager` auto-picks a tracked quest whenever one is assigned
+   * and none is tracked yet (see `setTrackedQuest`'s docstring) — the player can pick a different
+   * one to track from the Quest Log screen's Active tab (up/down + confirm there).
+   * @private
+   * @returns {void}
+   */
+  _refreshQuestHud() {
+    const quest = QuestManager.getTrackedQuest();
+    if (!quest) {
+      this.questHudLabel.setText('[L] Quest Log');
+      return;
+    }
+    const nextObjective = quest.objectives.find((o) => !o.done) ?? quest.objectives[quest.objectives.length - 1];
+    let line = `Quest: ${quest.title} \u2014 ${nextObjective.description} (${nextObjective.current}/${nextObjective.count})`;
+    if (line.length > WorldScreenController.QUEST_HUD_MAX_CHARS) {
+      line = `${line.slice(0, WorldScreenController.QUEST_HUD_MAX_CHARS - 1)}\u2026`;
+    }
+    this.questHudLabel.setText(line);
+  }
+
+  /**
    * @param {string} action
    * @param {{action: string, originalEvent: object}} event
    * @returns {void}
@@ -510,6 +572,11 @@ export class WorldScreenController extends ScreenController {
       // FIGHT mode's E (punch) is handled by continuous polling in onUpdate instead — see
       // class-level INPUT DESIGN NOTE for why the discrete action isn't used for it.
       if (isWithinRadius(this.actor.sprite, this.pc.zone, INTERACT_RADIUS)) this.pc.trigger();
+      for (const pickup of this.scrapPickups) {
+        if (isWithinRadius(this.actor.sprite, pickup.object.zone, PICKUP_RADIUS)) pickup.object.trigger();
+      }
+    } else if (action === 'open-quest-log') {
+      this.engine.screenManager.push('quest_log');
     } else if (action === 'cancel') {
       // ASSUMPTION: module 09 explicitly leaves the "what resets a loop" decision to this
       // example content (its own non-goal). Simplest standard choice for a jam demo: ESC in the
@@ -533,22 +600,27 @@ export class WorldScreenController extends ScreenController {
 
   /** @returns {void} */
   onExit() {
-    this.engine.scene.input.keyboard.off('keydown-H', this._onHitboxDebugKey);
-    this._unsubscribeHitboxSetting();
-    if (this.worldCollider) this.engine.scene.physics.world.removeCollider(this.worldCollider);
-    this.engine.scene.cameras.main.stopFollow();
-    this.engine.scene.cameras.main.setBounds(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
-    this.hitboxDebug.destroy();
     this.actor.sprite.off('animationcomplete', this._onAttackAnimationComplete);
     for (const particle of this._attackParticles) {
       this.engine.scene.tweens.killTweensOf(particle);
       particle.destroy();
     }
     this._attackParticles.clear();
+    QuestManager.events.off('quest:updated', this._onQuestsUpdated);
+    QuestManager.events.off('quest:assigned', this._onQuestAssigned);
+    QuestManager.events.off('quest:objective-progress', this._onQuestProgress);
+    QuestManager.events.off('quest:completed', this._onQuestCompleted);
+    this.toasts.destroy();
     this.actor.sprite.destroy();
     this.cat.destroy();
     this.pc.destroy();
+    this.pcVisual.destroy();
+    for (const pickup of this.scrapPickups) {
+      pickup.object.destroy();
+      pickup.visual.destroy();
+    }
     this.modeLabel.destroy();
+    this.questHudLabel.destroy();
     this.settingsButton.destroy();
   }
 

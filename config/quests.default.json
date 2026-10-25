@@ -1,0 +1,48 @@
+{
+  "autoStart": ["investigate_the_terminal", "scrap_run", "find_the_clearing"],
+  "quests": [
+    {
+      "id": "investigate_the_terminal",
+      "title": "Investigate the Terminal",
+      "description": "Something in this room is glitching. Walk up to the PC and interact with it.",
+      "objectives": [
+        {
+          "id": "interact_pc",
+          "type": "interact",
+          "targetId": "world_pc",
+          "description": "Interact with the PC"
+        }
+      ]
+    },
+    {
+      "id": "scrap_run",
+      "title": "Scrap Run",
+      "description": "There's loose scrap metal scattered around the room. Walk up to a piece and press [E] to pick it up.",
+      "objectives": [
+        {
+          "id": "collect_scrap",
+          "type": "collect_item",
+          "itemId": "scrap_metal",
+          "count": 2,
+          "description": "Collect 2x Scrap Metal"
+        }
+      ]
+    },
+    {
+      "id": "find_the_clearing",
+      "title": "Find the Clearing",
+      "description": "There's supposedly a quiet spot tucked in the corner of the room. Just walk there.",
+      "objectives": [
+        {
+          "id": "reach_clearing",
+          "type": "reach_location",
+          "screenId": "world",
+          "x": 140,
+          "y": 190,
+          "radius": 18,
+          "description": "Reach the clearing"
+        }
+      ]
+    }
+  ]
+}

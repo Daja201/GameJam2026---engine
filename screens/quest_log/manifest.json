@@ -1,0 +1,10 @@
+{
+  "id": "quest_log",
+  "display_name": "Quest Log",
+  "controller": "QuestLogScreenController",
+  "input_profile": "quest-log",
+  "background": null,
+  "ui_windows": ["quest_log_panel"],
+  "transition_in": "instant",
+  "transition_out": "instant"
+}

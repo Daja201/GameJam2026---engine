@@ -2,6 +2,7 @@ import { registerController } from '../../engine/screens/ScreenControllerRegistr
 import { WorldScreenController } from '../controllers/WorldScreenController.js';
 import { TerminalScreenController } from '../controllers/TerminalScreenController.js';
 import { SettingsModalController } from '../controllers/SettingsModalController.js';
+import { QuestLogScreenController } from '../controllers/QuestLogScreenController.js';
 
 /**
  * Registers every example-content screen controller under the name its screen manifest's
@@ -12,4 +13,5 @@ export function registerAllControllers() {
   registerController('WorldScreenController', WorldScreenController);
   registerController('TerminalScreenController', TerminalScreenController);
   registerController('SettingsModalController', SettingsModalController);
+  registerController('QuestLogScreenController', QuestLogScreenController);
 }

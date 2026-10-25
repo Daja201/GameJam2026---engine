@@ -41,6 +41,6 @@
       "fallback": "idle"
     }
   },
-  "hitbox": { "width": 14, "height": 10, "offset_y": 22 },
+  "hitbox": { "width": 14, "height": 10, "offset_y": 6 },
   "scale": 1
 }

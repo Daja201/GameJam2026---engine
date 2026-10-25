@@ -1,0 +1,27 @@
+{
+  "id": "quest_log_panel",
+  "display_name": "Quest Log",
+  "skin": "quest_log_panel",
+  "anchor": "center",
+  "modal": true,
+  "size": { "width": 480, "height": 270 },
+  "layout": "free",
+  "elements": [
+    { "id": "title", "type": "label", "text": "Quest Log", "x": 16, "y": 10 },
+    { "id": "tab_active", "type": "button", "text": "Active", "action": "quest-log-tab:active", "x": 16, "y": 28, "width": 90, "height": 16 },
+    { "id": "tab_completed", "type": "button", "text": "Completed", "action": "quest-log-tab:completed", "x": 112, "y": 28, "width": 90, "height": 16 },
+    { "id": "hint", "type": "label", "text": "[L] / [ESC] close", "x": 300, "y": 12 },
+    {
+      "id": "output",
+      "type": "scrollable-text",
+      "x": 16,
+      "y": 50,
+      "width": 448,
+      "height": 188,
+      "fontSize": "9px",
+      "color": "#d8e8ff",
+      "text": ""
+    },
+    { "id": "close_button", "type": "button", "text": "Close", "action": "close-window", "x": 16, "y": 246, "width": 90, "height": 16 }
+  ]
+}
