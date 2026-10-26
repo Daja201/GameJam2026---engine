@@ -9,6 +9,7 @@ import { LoopManager } from '../../engine/loop/LoopManager.js';
 import { FxManager } from '../../engine/loop/FxManager.js';
 import { QuestManager } from '../../engine/quest/QuestManager.js';
 import { InventoryManager } from '../../engine/inventory/InventoryManager.js';
+import { AudioManager } from '../../engine/audio/AudioManager.js';
 import { SettingsStore } from '../../engine/settings/SettingsStore.js';
 import { createToastNotifier } from '../../engine/ui/ToastNotifier.js';
 import { animKey } from '../../engine/sprites/AnimationFactory.js';
@@ -27,6 +28,9 @@ const INTERACT_RADIUS = 28;
 
 /** How close the player must be to a scrap pickup to interact with it. */
 const PICKUP_RADIUS = 20;
+
+/** How close the cat must be to the player's punching hand for a fight-mode hit to land on it. */
+const CAT_HIT_RADIUS = 20;
 const WORLD_Y_SORT_DEPTH_RANGE = DEPTH.WORLD_FOREGROUND - DEPTH.WORLD_ENTITIES - 1;
 
 /**
@@ -368,6 +372,12 @@ export class WorldScreenController extends ScreenController {
       ) return;
 
       this._spawnPunchParticles(this.actor.currentDirection);
+      // Cat hit check: the punch "lands" at the same moment the hit particles spawn (one check
+      // per completed swing, not every frame the hand overlaps the cat, so holding E doesn't
+      // spam the sound faster than the punch animation itself actually repeats).
+      if (isWithinRadius(this.actor.sprite, this.cat.sprite, CAT_HIT_RADIUS)) {
+        AudioManager.playSfx('sfx:cat-meow');
+      }
       if (this.mode === MODE_FIGHT && this.attackKey.isDown) {
         this.actor.playState('attack');
       }
@@ -582,7 +592,7 @@ export class WorldScreenController extends ScreenController {
 
     const key = animKey(this.actor.id, 'fight', direction);
     if (this.engine.scene.anims.exists(key)) {
-      this.actor.sprite.anims.play(key, false, 0);
+      this.actor.playState('fight');
       this.actor.sprite.anims.stop();
     } else {
       // Shouldn't happen — manifest.json's `attack` state has `fallback: "idle"`, so this key

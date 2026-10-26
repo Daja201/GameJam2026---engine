@@ -68,6 +68,7 @@ class BootScene extends Phaser.Scene {
     this.load.json('controls-config', 'config/controls.default.json');
     this.load.json('quests-config', 'config/quests.default.json');
     this.load.json('items-config', 'config/items.default.json');
+    this.load.audio('music:background', 'audio/music/backgroundmusic.mp3');
   }
 
   /** @returns {Promise<void>} */
@@ -117,11 +118,18 @@ class BootScene extends Phaser.Scene {
     this.load.image('hud:minimap_ring', 'graphics/ui/hud/minimap_ring.png');
     this.load.image('hud:bar', 'graphics/ui/hud/bar.png');
 
+    // SFX: the cat's reaction sound when the player's fight-mode punch lands on it (see
+    // WorldScreenController's '_onAttackAnimationComplete' -> cat-hit check). Not manifest-driven
+    // (same reasoning as the HUD art above — a single fixed, always-on sound, not generic
+    // sprite/background/window content), so it's queued directly here.
+    this.load.audio('sfx:cat-meow', 'audio/sfx/meowmeow.mp3');
+
     await runLoadQueue(this);
 
     // 3) Settings + audio (module 10).
     SettingsStore.load();
     AudioManager.init(this);
+    AudioManager.playMusic('music:background', { loop: true });
 
     // 4) Input (module 06).
     const controlsConfigJson = this.cache.json.get('controls-config');
