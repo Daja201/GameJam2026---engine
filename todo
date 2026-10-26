@@ -14,3 +14,100 @@ generate some npc graphics
 colour graded for themes
 healthbar
 some other bar
+
+
+# Everything That Could Theoretically Be Added
+
+Not a to-do list — a menu. Most of this should NOT be done. Use it to pick
+2-3 things deliberately, not to feel behind on the rest.
+
+## Core gameplay mechanics (pick AT MOST 1, beyond what you have)
+- Ghost/echo of past self (recommended — cheapest given your engine)
+- Evidence/testimony puzzle — contradicting NPC statements to piece together
+- Echo-location pulse — brief reveal of hidden paths/objects
+- Reputation/trust meter — NPC behavior shifts based on choices
+- Light/shadow mechanic — visibility or stealth tied to a light source
+- Resource management (battery, oxygen, time) creating urgency
+- Dialogue-choice branching with consequences later in the loop
+- Environmental storytelling only — no explicit mechanic, just discovery
+- Simple rhythm/timing minigame as an occasional set-piece
+- Sorting/pattern-matching puzzle (e.g. restoring corrupted data in order)
+
+## World / level content
+- More rooms/areas beyond the current city map
+- A second, distinct background type (e.g. one corridor-style simpler level)
+- Day/night or "glitch intensity" visual variation of the same map
+- Secret/optional areas with no mechanical reward, just flavor
+- Multiple distinct "chapters" tied to LoopManager.loopCount
+- Environmental hazards (not combat — e.g. a closing door, a timer zone)
+- More interactive objects beyond the PC (notes, switches, machines)
+- NPCs with idle behavior (patrol paths, idle animations, barks)
+
+## Audio
+- More SFX: menu click, crack success/fail, footstep, pickup, quest complete
+- A second music track (e.g. tension layer that fades in during fights/chases)
+- Ambient layer separate from music (hum, wind, distant sound)
+- Audio ducking (lower music volume during terminal typing)
+- Mute-on-tab-blur (pause audio when browser tab loses focus)
+
+## Visual polish
+- Particle effects (dust, sparks, glitch particles) via FxManager
+- Screen-space vignette or color grading per "chapter"/theme
+- More glitch visual variety (not just shake/flash — chromatic aberration, scanline intensity tied to LoopManager.glitchLevel())
+- Weather/ambient animation (rain, flickering lights)
+- Death/failure state visual distinct from normal loop reset
+- Win-state screen/animation (currently nothing happens on "beating" the game)
+- Loading screen / progress bar polish beyond the default
+- Custom cursor
+- Screen shake variety (directional, not just uniform)
+
+## UI/UX
+- Tutorial/onboarding hints (first-time player guidance)
+- Keybind remapping UI actually wired to InputRouter (KeybindList element exists — is it used?)
+- Accessibility: text size setting actually applied (settings schema has it — is it wired?)
+- Toast notifications for more events (already have ToastNotifier — is it used everywhere it could be?)
+- Minimap toggle on/off (not everyone wants it always visible)
+- Settings: a "controls reference" screen listing all keybinds
+- Credits screen
+- Quest log: sorting, completed vs active separation
+- Inventory: item descriptions/tooltips on hover
+
+## Narrative/content
+- NPC dialogue variety (more than one line per NPC)
+- Multiple endings based on choices or fragment count
+- An optional "lore" collectible track separate from main quests
+- Opening cutscene/intro text before gameplay starts
+- Epilogue text after completion
+- Journal/log screen compiling discovered fragments into readable form
+
+## Companion (cat)
+- More animation states (sit, sleep, react to player actions)
+- Cat reacts to glitch level (hides, changes behavior as world destabilizes)
+- Cat occasionally "finds" something (a light gameplay hook, not required)
+- Multiple cat poses already exist (sitting_down_on_back) — is it used anywhere?
+
+## Technical/meta
+- Performance pass (check for memory leaks on repeated screen transitions)
+- Mobile/touch input support (if relevant for judging on other devices)
+- Gamepad support (InputRouter was designed to allow this)
+- Save/load persisting progress across browser sessions (localStorage)
+- Error handling polish (what happens if an asset genuinely fails to load mid-game?)
+- Build size optimization (check dist/ bundle size)
+
+## Submission/presentation (NOT code — do not neglect this)
+- itch.io page: screenshots, short description, controls listed clearly
+- A short trailer/GIF for the itch.io page
+- Clear README or in-game credits
+- Test the actual submitted build one final time, fresh download, different browser
+
+---
+
+## How to use this list
+1. Pick mechanics from "Core gameplay mechanics" — **zero or one**, not more.
+2. Pick 2-3 items total from Visual/Audio/UI combined — whatever gives the
+   most "it feels finished" signal for the least time.
+3. Everything else stays here, unreached, on purpose. A judge rewards a
+   tight, polished, working game far more than a long feature list with
+   rough edges.
+4. Re-read this list only if you have genuinely spare time in the final
+   hours — never let it create anxiety about what's "missing."
