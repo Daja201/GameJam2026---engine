@@ -19,19 +19,28 @@ export const MANIFEST_PATHS = {
     'graphics/sprites/main_char/manifest.json',
     'graphics/sprites/cat_companion/manifest.json',
   ],
-  backgrounds: ['graphics/backgrounds/example_room/manifest.json'],
+  backgrounds: [
+    'graphics/backgrounds/example_room/manifest.json',
+    'graphics/backgrounds/city/manifest.json',
+  ],
   screens: [
+    'screens/menu/manifest.json',
+    'screens/pause_menu/manifest.json',
     'screens/world/manifest.json',
     'screens/terminal/manifest.json',
     'screens/settings_modal/manifest.json',
     'screens/quest_log/manifest.json',
+    'screens/inventory/manifest.json',
   ],
   // NOTE: 'terminal_output' and 'quest_log_panel' are this bootstrap's own additions (not in the
   // original module file lists) — the Terminal and Quest Log screens' `ui_windows` each need a
   // window manifest to display their (dynamically redrawn) output.
   windows: [
     'graphics/ui/windows/default_panel/manifest.json',
+    'graphics/ui/windows/menu_panel/manifest.json',
+    'graphics/ui/windows/pause_panel/manifest.json',
     'graphics/ui/windows/terminal_output/manifest.json',
     'graphics/ui/windows/quest_log_panel/manifest.json',
+    'graphics/ui/windows/inventory_panel/manifest.json',
   ],
 };

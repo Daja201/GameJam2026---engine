@@ -13,7 +13,7 @@
 /** @type {object} */
 export const DEFAULT_SETTINGS = {
   audio: { music: 0.7, sfx: 0.8, ambient: 0.5, muted: false },
-  video: { pixelScale: 'auto', crtEnabled: true, glitchEnabled: true, reducedMotion: false },
+  video: { pixelScale: 'auto', crtEnabled: true, glitchEnabled: true, reducedMotion: false, hitboxDebug: false },
   controls: {}, // populated at runtime from /config/controls.default.json by module 11's bootstrap
   accessibility: { textSize: 'normal' },
 };

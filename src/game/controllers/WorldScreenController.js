@@ -3,13 +3,17 @@ import { Actor } from '../../engine/sprites/Actor.js';
 import { Companion } from '../companions/Companion.js';
 import { InteractiveObject } from '../../engine/world/InteractiveObject.js';
 import { isWithinRadius } from '../../engine/world/ProximityDetector.js';
-import { INTERNAL_WIDTH, INTERNAL_HEIGHT } from '../../engine/display/constants.js';
+import { INTERNAL_HEIGHT } from '../../engine/display/constants.js';
 import { DEPTH } from '../../engine/display/DepthLayers.js';
 import { LoopManager } from '../../engine/loop/LoopManager.js';
 import { FxManager } from '../../engine/loop/FxManager.js';
 import { QuestManager } from '../../engine/quest/QuestManager.js';
+import { InventoryManager } from '../../engine/inventory/InventoryManager.js';
+import { SettingsStore } from '../../engine/settings/SettingsStore.js';
 import { createToastNotifier } from '../../engine/ui/ToastNotifier.js';
 import { animKey } from '../../engine/sprites/AnimationFactory.js';
+import { createHudPanel } from '../ui/HudPanel.js';
+import { createMapOverlay } from '../../engine/world/MapOverlay.js';
 
 /** Toast accent colors by quest-event category — kept here (content), not in ToastNotifier (generic). */
 const TOAST_ACCENT_STARTED = 0x8aa8ff;
@@ -23,6 +27,7 @@ const INTERACT_RADIUS = 28;
 
 /** How close the player must be to a scrap pickup to interact with it. */
 const PICKUP_RADIUS = 20;
+const WORLD_Y_SORT_DEPTH_RANGE = DEPTH.WORLD_FOREGROUND - DEPTH.WORLD_ENTITIES - 1;
 
 /**
  * Quest content for this room (THIS controller's own example content — the quest engine,
@@ -32,9 +37,21 @@ const PICKUP_RADIUS = 20;
  */
 const WORLD_PC_INTERACT_ID = 'world_pc';
 const SCRAP_ITEM_ID = 'scrap_metal';
+
+// FIX (city map): the `world` screen's background is now `graphics/backgrounds/city` (a large
+// generated tilemap, see that folder's manifest.json), not the old single-room static image, so
+// spawning at INTERNAL_WIDTH/2 x INTERNAL_HEIGHT/2 (the room's center) no longer makes sense — on
+// a 3904x2304px map that point is wherever a random building or street happens to fall, not
+// guaranteed walkable. SPAWN_X/SPAWN_Y below is the pixel-center of that map's one "plaza" block
+// (graphics/backgrounds/city/gen_map.py's PLAZA_BLOCK), the single spot deliberately generated
+// as open grass with no `collides` tiles, so the player, cat, PC prop, and scrap pickups all land
+// somewhere guaranteed walkable regardless of how the surrounding city blocks were laid out.
+const SPAWN_X = 2160;
+const SPAWN_Y = 1168;
+
 const SCRAP_SPAWN_POINTS = [
-  { x: INTERNAL_WIDTH / 2 - 60, y: INTERNAL_HEIGHT / 2 - 40 },
-  { x: INTERNAL_WIDTH / 2 + 90, y: INTERNAL_HEIGHT / 2 + 50 },
+  { x: SPAWN_X - 60, y: SPAWN_Y - 40 },
+  { x: SPAWN_X + 90, y: SPAWN_Y + 50 },
 ];
 
 /** Mode names. In 'normal' mode E interacts with the world; in 'fight' mode E punches. */
@@ -51,97 +68,6 @@ const PUNCH_HAND_OFFSETS = {
   west: { x: -10, y: -16 },
   'south-west': { x: -9, y: -14 },
 };
-
-/**
- * Draws a plain cog/gear icon (the generic "settings" glyph most apps use) as a small Graphics
- * object. Drawn instead of a text/emoji glyph on purpose: canvas font support for a gear
- * character (e.g. U+2699) is inconsistent across platforms/fonts, so a hand-drawn vector icon is
- * the only way to guarantee it actually looks like a gear everywhere.
- * @param {Phaser.Scene} scene
- * @param {number} cx - center x
- * @param {number} cy - center y
- * @param {number} radius - outer radius, teeth included
- * @param {number} color
- * @returns {Phaser.GameObjects.Graphics}
- */
-function drawGearIcon(scene, cx, cy, radius, color) {
-  const g = scene.add.graphics();
-  g.fillStyle(color, 1);
-
-  const teeth = 8;
-  const outer = radius;
-  const inner = radius * 0.62;
-  const toothWidth = (Math.PI * 2) / teeth / 2.4;
-
-  g.beginPath();
-  for (let i = 0; i < teeth; i += 1) {
-    const mid = (i / teeth) * Math.PI * 2;
-    const a0 = mid - toothWidth / 2;
-    const a1 = mid + toothWidth / 2;
-    const nextMid = ((i + 1) / teeth) * Math.PI * 2;
-    const a2 = nextMid - toothWidth / 2;
-    if (i === 0) g.moveTo(cx + Math.cos(a0) * outer, cy + Math.sin(a0) * outer);
-    else g.lineTo(cx + Math.cos(a0) * outer, cy + Math.sin(a0) * outer);
-    g.lineTo(cx + Math.cos(a1) * outer, cy + Math.sin(a1) * outer);
-    g.lineTo(cx + Math.cos((a1 + a2) / 2) * inner, cy + Math.sin((a1 + a2) / 2) * inner);
-    g.lineTo(cx + Math.cos(a2) * outer, cy + Math.sin(a2) * outer);
-  }
-  g.closePath();
-  g.fillPath();
-
-  // Center hole, punched out with the background color so it reads as a ring (drawn by caller
-  // passing its own background color isn't possible here, so instead draw a smaller filled
-  // circle in the panel's own bg color).
-  g.fillStyle(0x2a2a3a, 1);
-  g.fillCircle(cx, cy, inner * 0.55);
-
-  return g;
-}
-
-/**
- * Builds a small clickable HUD icon button (square background + centered gear icon), styled to
- * match `engine/ui/elements/Button.js` but standalone — this is a fixed-to-screen World-screen
- * HUD element, not a window-manifest element, so it doesn't go through WindowFactory/ActionRegistry.
- *
- * BUGFIX (kept from the previous round): don't nest the interactive object inside a Container.
- * Phaser renders nested-container children screen-fixed correctly regardless of nesting, but
- * pointer HIT-TESTING of an interactive child inside a Container is computed using that child's
- * own `scrollFactorX/Y` against the camera's current scroll — not the ancestor container's. Once
- * the camera scrolls away from the origin (it follows the player here), the drawn position and
- * the hit-tested position drift apart and clicks silently miss. So the background rectangle and
- * the icon are both added directly to the scene, each with its own `scrollFactor(0)`.
- * @param {Phaser.Scene} scene
- * @param {number} x
- * @param {number} y
- * @param {{ size?: number, originX?: number, onClick: () => void }} opts
- * @returns {{ destroy(): void }}
- */
-function createSettingsButton(scene, x, y, opts) {
-  const size = opts.size ?? 20;
-  const originX = opts.originX ?? 0;
-  const left = x - originX * size;
-
-  const bg = scene.add.rectangle(left, y, size, size, 0x2a2a3a).setOrigin(0, 0);
-  bg.setStrokeStyle(1, 0x6a6a8a);
-  bg.setScrollFactor(0);
-  bg.setDepth(DEPTH.UI_HUD);
-
-  const icon = drawGearIcon(scene, left + size / 2, y + size / 2, size * 0.32, 0xd8d8e8);
-  icon.setScrollFactor(0);
-  icon.setDepth(DEPTH.UI_HUD);
-
-  bg.setInteractive({ useHandCursor: true });
-  bg.on('pointerover', () => bg.setFillStyle(0x3a3a52));
-  bg.on('pointerout', () => bg.setFillStyle(0x2a2a3a));
-  bg.on('pointerdown', () => opts.onClick());
-
-  return {
-    destroy() {
-      bg.destroy();
-      icon.destroy();
-    },
-  };
-}
 
 /**
  * Example "World" screen: one Actor the player walks around with WASD, a mode-switchable "E"
@@ -175,10 +101,11 @@ function createSettingsButton(scene, x, y, opts) {
  * punch-pose frames with the legs not animating to match. Walking in FIGHT mode (E not held) still
  * uses the ordinary walk animation, same as NORMAL mode, for the same reason.
  *
- * SETTINGS: opened by clicking the gear-icon HUD button in the top-right corner (no longer bound
- * to Enter — `config/controls.default.json`'s movement profile no longer maps ENTER). The window
- * itself (`graphics/ui/windows/default_panel/manifest.json`) is now sized to the full internal
- * resolution (480x270) so it opens fullscreen by default.
+ * SETTINGS: opened by clicking "Quit" in the HudPanel's top-right button column (see
+ * `game/ui/HudPanel.js`; no longer bound to Enter — `config/controls.default.json`'s movement
+ * profile no longer maps ENTER). The window itself (`graphics/ui/windows/default_panel/
+ * manifest.json`) is now sized to the full internal resolution (480x270) so it opens fullscreen
+ * by default.
  * @module game/controllers/WorldScreenController
  */
 export class WorldScreenController extends ScreenController {
@@ -186,16 +113,82 @@ export class WorldScreenController extends ScreenController {
   onEnter(params) {
     const { scene } = this.engine;
 
-    this.actor = new Actor(scene, 'main_char', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2);
+    // Lets a pushed-on-top screen (e.g. the pause menu) reach this controller while it's mounted
+    // underneath (see main.js's 'menu-start'/'pause-open-map' action registrations). Cleared in onExit.
+    this.engine.worldController = this;
+
+    this.actor = new Actor(scene, 'main_char', SPAWN_X, SPAWN_Y);
     scene.cameras.main.startFollow(this.actor.sprite, true);
+
+    // FIX (city map): world/camera bounds and building collision. Previously neither was set at
+    // all (see prompts/12-INSTRUCTIONS_GAME.md: "No collision tilemap yet — player currently
+    // walks through everything") because the old background was a single borderless static room
+    // image with no real edges and nothing to collide with. `getMapSize()`/`getCollisionLayer()`
+    // are no-ops (return null) for non-tilemap backgrounds, so this stays harmless if a future
+    // screen swaps back to a static/parallax background.
+    const mapSize = this.background?.getMapSize?.();
+    this.mapSize = mapSize ?? null;
+    if (mapSize) {
+      scene.physics.world.setBounds(0, 0, mapSize.width, mapSize.height);
+      scene.cameras.main.setBounds(0, 0, mapSize.width, mapSize.height);
+    }
+    const collisionLayer = this.background?.getCollisionLayer?.();
+    if (collisionLayer) {
+      scene.physics.add.collider(this.actor.sprite, collisionLayer);
+      // NOTE: the cat companion is deliberately NOT given a collider here — it moves by directly
+      // setting sprite.x/y each frame (Companion.js), not via arcade velocity/acceleration, so a
+      // collider would only ever stop it dead against a wall rather than let it path around one.
+      // It can clip through buildings as a result; acceptable for a jam-scope follower.
+    }
+
+    // Hitbox debug overlay (Settings > "Show Hitboxes (debug)"): draws a red rectangle around
+    // every Arcade Physics body in the scene — the player, the companion cat, and every
+    // InteractiveObject's trigger zone (the PC, scrap pickups, quest markers) — plus the tilemap's
+    // colliding tiles. See `_applyHitboxDebug`'s own doc for how the two halves work.
+    this._physicsDebugGraphic = scene.physics.world.createDebugGraphic();
+    scene.physics.world.drawDebug = false; // createDebugGraphic() turns this on; we drive it ourselves
+    this._tileDebugGraphic = collisionLayer ? scene.add.graphics().setDepth(DEPTH.WORLD_FOREGROUND) : null;
+    if (collisionLayer) {
+      // Tiles have no per-tile Arcade Body, so they're not part of `world`'s debug pass above —
+      // drawn once into a separate Graphics instead (tiles don't move, so no per-frame redraw
+      // needed). `tileColor`/`faceColor: null` skip non-colliding tiles and face-direction lines,
+      // leaving just a red rectangle over every `collides` tile, matching the player/zone color.
+      collisionLayer.renderDebug(this._tileDebugGraphic, {
+        tileColor: null,
+        collidingTileColor: { color: 0xff0000, alpha: 120 },
+        faceColor: null,
+      });
+    }
+    /**
+     * @param {boolean} visible
+     * @returns {void}
+     */
+    this._applyHitboxDebug = (visible) => {
+      scene.physics.world.drawDebug = visible;
+      if (!visible) this._physicsDebugGraphic.clear(); // drawDebug=false stops redrawing it, but
+      // leaves whatever was drawn last frame on screen until something else clears it
+      this._tileDebugGraphic?.setVisible(visible);
+    };
+    this._applyHitboxDebug(SettingsStore.get('video.hitboxDebug'));
+    this._unsubscribeHitboxDebug = SettingsStore.subscribe('video.hitboxDebug', this._applyHitboxDebug);
 
     // Companion cat: trails the player with a short lag (see Companion.js). Reused unmodified
     // from here on by `onUpdate`/`onExit` — nothing else in this controller needs to know how
     // the follow behavior works internally.
     this.cat = new Companion(scene, 'cat_companion', this.actor.sprite);
+    // NOTE: blocking the player from walking THROUGH the cat is handled by `_keepCatOffPlayer`
+    // (called from onUpdate, after both actor/cat `update()`), NOT by `physics.add.collider`.
+    // An Arcade collider was tried here first and caused the camera to visibly shake while
+    // moving: Companion moves the cat by writing `sprite.x/y` directly every frame (same as the
+    // "cat has no collider against walls" note below explains), so whenever its chase logic
+    // tried to close the distance to the player, a collider would shove it back out, Companion
+    // would immediately re-overlap it next frame, and — because colliding two DYNAMIC bodies
+    // pushes both sides apart by default — that tug-of-war also kept nudging the player, which
+    // the camera follows. `_keepCatOffPlayer` resolves the same overlap but only ever moves the
+    // cat, so the player (and the camera) stay untouched by it.
 
-    const pcX = INTERNAL_WIDTH / 2 + 40;
-    const pcY = INTERNAL_HEIGHT / 2;
+    const pcX = SPAWN_X + 40;
+    const pcY = SPAWN_Y;
     // Visual for the trigger zone — InteractiveObject itself only builds the invisible zone.
     this.pcVisual = scene.add.rectangle(pcX, pcY, 14, 14, 0x334455).setDepth(DEPTH.WORLD_ENTITIES);
     this.pcVisual.setStrokeStyle(1, 0x8aa8ff);
@@ -213,6 +206,11 @@ export class WorldScreenController extends ScreenController {
         this.engine.screenManager.push('terminal');
       },
     });
+    // Blocks the player from walking through the PC prop. Separate from interact detection:
+    // `onUpdate` still decides whether `[E]` is usable via `isWithinRadius(INTERACT_RADIUS)`
+    // against `this.pc.zone`'s x/y (a distance check, not a physics overlap), so making the
+    // zone solid here doesn't change when the prompt shows or when interact fires.
+    scene.physics.add.collider(this.actor.sprite, this.pc.zone);
 
     // Scrap-metal pickups (this room's "getting some item" quest content — see SCRAP_SPAWN_POINTS'
     // docstring above). Only as many are spawned as are still needed: if a previous session
@@ -221,6 +219,10 @@ export class WorldScreenController extends ScreenController {
     // past what the quest actually still requires.
     const alreadyCollected = QuestManager.getItemCount(SCRAP_ITEM_ID);
     this.scrapPickups = SCRAP_SPAWN_POINTS.slice(alreadyCollected).map((point) => this._createScrapPickup(point.x, point.y));
+
+    this.droppedItems = [];
+    this._onInventoryItemDropped = ({ itemId, amount }) => this._createDroppedItem(itemId, amount);
+    InventoryManager.events.on('inventory:item-dropped', this._onInventoryItemDropped);
 
     // WASD for movement (rewired from arrow keys; see class-level INPUT DESIGN NOTE).
     this.moveKeys = scene.input.keyboard.addKeys({
@@ -234,36 +236,59 @@ export class WorldScreenController extends ScreenController {
     // (the abstract `interact` action only fires on press — see class-level INPUT DESIGN NOTE).
     this.attackKey = scene.input.keyboard.addKey('E');
 
+    // FIX (quest box): the mode/quest/hint labels below used to each draw their own small
+    // individual `backgroundColor` patch — three disconnected black rectangles stacked on top of
+    // each other, not a real box, and (before the minimap-ring fix above) also sitting directly
+    // underneath HudPanel's ring graphic, which is the "graphics thrown over text" overlap that
+    // fix removed. This is their actual shared background now: one cohesive panel, drawn once,
+    // sized generously (wider than the longest tracked-quest line, QUEST_HUD_MAX_CHARS=64 chars
+    // at 8px monospace) rather than three cramped per-line patches — "make it bigger" per the
+    // request this fixes. Plain Graphics, not the `panel.png` 9-slice windows (those currently
+    // carry a baked-in magenta guide-line artifact — see WindowFactory/ScrollableText history —
+    // and fixing that asset is a separate, not-yet-requested task).
+    const questBoxWidth = 330;
+    const questBoxHeight = 50;
+    this.questBox = scene.add.graphics();
+    this.questBox.fillStyle(0x05070c, 0.78);
+    this.questBox.fillRect(0, 0, questBoxWidth, questBoxHeight);
+    this.questBox.lineStyle(1, 0x35e0a8, 0.9);
+    this.questBox.strokeRect(0, 0, questBoxWidth, questBoxHeight);
+    this.questBox.setPosition(2, 2);
+    this.questBox.setScrollFactor(0);
+    this.questBox.setDepth(DEPTH.UI_HUD);
+
+    const QUEST_BOX_PAD = 8;
+
     // Mode: NORMAL (E interacts) <-> FIGHT (E punches), toggled with Q.
     this.mode = MODE_NORMAL;
-    this.modeLabel = scene.add.text(4, 18, '', {
+    this.modeLabel = scene.add.text(2 + QUEST_BOX_PAD, 2 + 22, '', {
       fontFamily: 'monospace',
       fontSize: '10px',
       color: '#ffffff',
-      backgroundColor: '#000000aa',
-      padding: { x: 4, y: 2 },
     });
     this.modeLabel.setScrollFactor(0);
     this.modeLabel.setDepth(DEPTH.UI_HUD);
     this._refreshModeLabel();
 
-    // Settings button: clickable gear-icon HUD button, top-right corner (replaces the old Enter
-    // keybind; opens `settings_modal`, whose window manifest is now sized fullscreen by default).
-    this.settingsButton = createSettingsButton(scene, INTERNAL_WIDTH - 4, 4, {
-      size: 20,
-      originX: 1,
-      onClick: () => this.engine.screenManager.push('settings_modal'),
-    });
+    // HUD panel (status bar bottom-left; keyboard-shortcut hint text top-right).
+    // FIX (menu/pause screen): the old Quit and Inventory BUTTONS are gone — Quit's job (opening
+    // Settings) is now reached via Backspace -> the pause menu -> Settings (see
+    // PauseMenuScreenController.js and this controller's 'cancel' handling in onInput), and Inventory
+    // is already reachable via its own keyboard shortcut (I, see config/controls.default.json's
+    // "movement" profile). Both are now just listed as hint text instead of clickable buttons —
+    // see HudPanel.js's own doc for the exact keys shown. Map is ALSO just hint text now, same
+    // shape as the others (M still works; see onInput's 'toggle-map') — it was the last clickable
+    // button left in this column and is now gone too, so the whole column is key-hints only.
+    this.hudPanel = createHudPanel(scene);
 
     // Tracked-quest HUD line, top-left corner (ABOVE the mode label, see class docstring) —
     // always shows whichever quest QuestManager considers "tracked" (auto-picked, or chosen by
     // the player from the Quest Log screen's Active tab). [L] opens the Quest Log (see onInput).
-    this.questHudLabel = scene.add.text(4, 4, '', {
+    this.questHudLabel = scene.add.text(2 + QUEST_BOX_PAD, 2 + 8, '', {
       fontFamily: 'monospace',
       fontSize: '8px',
       color: '#aaffaa',
-      backgroundColor: '#000000aa',
-      padding: { x: 4, y: 2 },
+      wordWrap: { width: questBoxWidth - QUEST_BOX_PAD * 2 },
     });
     this.questHudLabel.setScrollFactor(0);
     this.questHudLabel.setDepth(DEPTH.UI_HUD);
@@ -291,13 +316,42 @@ export class WorldScreenController extends ScreenController {
         this.toasts.show(`${quest.title}: ${objective.description} (${current}/${count})`, { accentColor: TOAST_ACCENT_PROGRESS });
       }
     };
-    this._onQuestCompleted = ({ id }) => {
+    this._onQuestCompleted = ({ id, rewardItems }) => {
       const quest = QuestManager.getQuest(id);
       if (quest) this.toasts.show(`Quest Complete: ${quest.title}`, { accentColor: TOAST_ACCENT_COMPLETE });
+
+      // Reward granting is this content's job, not QuestManager's (see its module docstring's
+      // REWARD ITEMS note) — QuestManager only hands the list off on the event payload.
+      for (const reward of rewardItems ?? []) {
+        const leftover = InventoryManager.addItem(reward.itemId, reward.count ?? 1);
+        const definition = InventoryManager.getItemDefinition(reward.itemId);
+        const name = definition?.name ?? reward.itemId;
+        const gained = (reward.count ?? 1) - leftover;
+        if (gained > 0) this.toasts.show(`+${gained} ${name}`, { accentColor: TOAST_ACCENT_COMPLETE });
+        if (leftover > 0) this.toasts.show(`Inventory full: ${leftover} ${name} lost`, { accentColor: TOAST_ACCENT_PROGRESS });
+      }
     };
     QuestManager.events.on('quest:assigned', this._onQuestAssigned);
     QuestManager.events.on('quest:objective-progress', this._onQuestProgress);
     QuestManager.events.on('quest:completed', this._onQuestCompleted);
+
+    // Minimap + full map (see engine/world/MapOverlay.js). Only possible for a tilemap
+    // background (getMapSize() is null otherwise) — a static/parallax room has no real map to
+    // show. Every screen-fixed HUD element built above must be passed in `ignore`, or it would
+    // also render tiny inside the map cameras.
+    this.mapOverlay = this.mapSize
+      ? createMapOverlay(scene, {
+        follow: this.actor.sprite,
+        mapSize: this.mapSize,
+        ignore: [
+          ...this.hudPanel.getDisplayObjects(),
+          this.questBox,
+          this.modeLabel,
+          this.questHudLabel,
+          this.toasts.root,
+        ],
+      })
+      : null;
 
     // Punching: true only while E is physically held down in FIGHT mode.
     this.isPunching = false;
@@ -319,6 +373,7 @@ export class WorldScreenController extends ScreenController {
       }
     };
     this.actor.sprite.on('animationcomplete', this._onAttackAnimationComplete);
+    this._sortWorldEntities();
   }
 
   /**
@@ -329,7 +384,12 @@ export class WorldScreenController extends ScreenController {
   onUpdate(time, delta) {
     const { scene } = this.engine;
 
-    if (this.mode === MODE_FIGHT) {
+    // Full map open: feet planted (same reasoning as mid-punch) so the player doesn't wander
+    // off-screen while looking at the map; everything else (HUD, quest tracking, fx) keeps going.
+    if (this.mapOverlay?.isOpen) {
+      this.actor.sprite.body.setVelocity(0, 0); // feet planted — see movement note on MODE_FIGHT below
+      this.actor.playState('idle');
+    } else if (this.mode === MODE_FIGHT) {
       this._updateFightMode(delta);
     } else {
       this._updateNormalMode(delta);
@@ -338,6 +398,9 @@ export class WorldScreenController extends ScreenController {
     this._syncActorOrigin();
     this.actor.update(time, delta);
     this.cat.update(time, delta);
+    this._keepCatOffPlayer();
+    this._sortWorldEntities();
+    this.hudPanel.setBarFraction(LoopManager.glitchLevel());
 
     // In fight mode E punches rather than interacts, so the "[E] interact" prompt would be
     // misleading there — only show it in normal mode.
@@ -345,6 +408,11 @@ export class WorldScreenController extends ScreenController {
 
     for (const pickup of this.scrapPickups) {
       pickup.object.showPrompt(this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, pickup.object.zone, PICKUP_RADIUS));
+    }
+    for (const droppedItem of this.droppedItems) {
+      droppedItem.object.showPrompt(
+        this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, droppedItem.object.zone, PICKUP_RADIUS),
+      );
     }
 
     // "Getting somewhere" quest progress: fed every frame, same way LoopManager/FxManager usage
@@ -355,6 +423,56 @@ export class WorldScreenController extends ScreenController {
     const level = LoopManager.glitchLevel();
     if (level > 0 && Math.random() < 0.002 * level) {
       FxManager.shake(scene, 0.002 + 0.006 * level, 120);
+    }
+  }
+
+  /**
+   * Sorts world characters and props by their ground-contact Y position, keeping the result
+   * inside the world-entity depth band so foreground layers and the HUD remain above them.
+   * @private
+   * @returns {void}
+   */
+  _sortWorldEntities() {
+    const mapHeight = this.mapSize?.height ?? INTERNAL_HEIGHT;
+    const sortables = [
+      this.actor.sprite,
+      this.cat.sprite,
+      this.pcVisual,
+      ...this.scrapPickups.map(({ visual }) => visual),
+      ...this.droppedItems.flatMap(({ visual, icon, countLabel }) => [visual, icon, countLabel]),
+    ];
+
+    for (const object of sortables) {
+      const groundY = object.body?.bottom ?? object.getBounds().bottom;
+      const normalizedY = Math.max(0, Math.min(1, groundY / mapHeight));
+      const depth = DEPTH.WORLD_ENTITIES + normalizedY * WORLD_Y_SORT_DEPTH_RANGE;
+      if (object.depth !== depth) object.setDepth(depth);
+    }
+  }
+
+  /**
+   * Keeps the cat from visually sitting on top of the player, WITHOUT ever moving the player
+   * (see the comment where `this.cat` is created for why this isn't a `physics.add.collider`).
+   * Standard AABB overlap resolution, but one-sided: only `this.cat.sprite` is ever adjusted.
+   * @private
+   * @returns {void}
+   */
+  _keepCatOffPlayer() {
+    const playerBody = this.actor.sprite.body;
+    const catBody = this.cat.sprite.body;
+
+    const overlapX = Math.min(playerBody.right, catBody.right) - Math.max(playerBody.left, catBody.left);
+    const overlapY = Math.min(playerBody.bottom, catBody.bottom) - Math.max(playerBody.top, catBody.top);
+    if (overlapX <= 0 || overlapY <= 0) return; // not overlapping
+
+    // Push out along whichever axis has the smaller overlap (the usual AABB resolution choice —
+    // it's the shorter way out), away from the player's center.
+    if (overlapX < overlapY) {
+      const dir = Math.sign(catBody.center.x - playerBody.center.x) || 1;
+      this.cat.sprite.x += dir * overlapX;
+    } else {
+      const dir = Math.sign(catBody.center.y - playerBody.center.y) || 1;
+      this.cat.sprite.y += dir * overlapY;
     }
   }
 
@@ -377,6 +495,15 @@ export class WorldScreenController extends ScreenController {
 
   /**
    * Ordinary WASD movement + idle/walk, used in NORMAL mode.
+   *
+   * FIX (collision): this used to move the player by writing `sprite.x`/`sprite.y` directly
+   * every frame. That's why walls, the cat and the PC prop never actually stopped the player
+   * even once their colliders were registered: Arcade's collision separation runs as part of
+   * the physics engine's own step, which happens BEFORE this controller's `onUpdate` runs each
+   * frame (see ScreenManager's doc) — so any separation a collider applied was immediately
+   * undone the instant this method wrote a fresh raw position straight over it. Moving via
+   * `body.setVelocity` instead lets Arcade integrate position AND resolve collisions together
+   * in that same physics step, which is what colliders actually require to work.
    * @private
    * @param {number} delta
    * @returns {void}
@@ -387,11 +514,13 @@ export class WorldScreenController extends ScreenController {
     const dy = (keys.down.isDown ? 1 : 0) - (keys.up.isDown ? 1 : 0);
 
     if (dx !== 0 || dy !== 0) {
-      const step = (WALK_SPEED * delta) / 1000;
-      this.actor.sprite.x += dx * step;
-      this.actor.sprite.y += dy * step;
+      // Normalized so diagonal movement isn't faster than cardinal movement (a side effect of
+      // moving to velocity-based motion — raw dx/dy would otherwise give diagonals sqrt(2)x speed).
+      const length = Math.hypot(dx, dy);
+      this.actor.sprite.body.setVelocity((dx / length) * WALK_SPEED, (dy / length) * WALK_SPEED);
       this.actor.setDirectionFromVector(dx, dy, 'walk');
     } else {
+      this.actor.sprite.body.setVelocity(0, 0);
       this.actor.playState('idle');
     }
   }
@@ -418,19 +547,24 @@ export class WorldScreenController extends ScreenController {
       this._showFightStance();
     }
 
-    if (this.isPunching) return; // feet planted — see class-level ATTACK doc for why
+    if (this.isPunching) {
+      this.actor.sprite.body.setVelocity(0, 0); // feet planted — see class-level ATTACK doc for why
+      return;
+    }
 
     const keys = this.moveKeys;
     const dx = (keys.right.isDown ? 1 : 0) - (keys.left.isDown ? 1 : 0);
     const dy = (keys.down.isDown ? 1 : 0) - (keys.up.isDown ? 1 : 0);
 
+    // See `_updateNormalMode`'s doc for why this is velocity-based rather than writing
+    // `sprite.x`/`sprite.y` directly (that bypassed wall/cat/PC collision entirely).
     if (dx !== 0 || dy !== 0) {
-      const step = (WALK_SPEED * delta) / 1000;
-      this.actor.sprite.x += dx * step;
-      this.actor.sprite.y += dy * step;
+      const length = Math.hypot(dx, dy);
+      this.actor.sprite.body.setVelocity((dx / length) * WALK_SPEED, (dy / length) * WALK_SPEED);
       this.actor.setDirectionFromVector(dx, dy, 'walk');
       this._fightStanceDirection = null; // walking overrides the stance pose until it stops
     } else {
+      this.actor.sprite.body.setVelocity(0, 0);
       this._showFightStance();
     }
   }
@@ -526,6 +660,66 @@ export class WorldScreenController extends ScreenController {
     return entry;
   }
 
+  /**
+   * Spawns an item stack dropped from the inventory at the player's feet. The world object is
+   * retained if inventory capacity prevents the full stack from being picked up again.
+   * @private
+   * @param {string} itemId
+   * @param {number} amount
+   * @returns {void}
+   */
+  _createDroppedItem(itemId, amount) {
+    const definition = InventoryManager.getItemDefinition(itemId);
+    if (!definition) throw new Error(`WorldScreenController: cannot spawn unknown item "${itemId}"`);
+
+    const { scene } = this.engine;
+    const x = this.actor.sprite.x;
+    const y = (this.actor.sprite.body?.bottom ?? this.actor.sprite.y) + 6;
+    const visual = scene.add.rectangle(x, y, 12, 12, 0x373044).setDepth(DEPTH.WORLD_ENTITIES);
+    visual.setStrokeStyle(1, 0xffd27f);
+    const icon = scene.add.text(x, y, definition.name.slice(0, 1).toUpperCase(), {
+      fontFamily: 'monospace',
+      fontSize: '8px',
+      color: '#fff0c0',
+    }).setOrigin(0.5).setDepth(DEPTH.WORLD_ENTITIES);
+    const countLabel = scene.add.text(x, y - 10, String(amount), {
+      fontFamily: 'monospace',
+      fontSize: '7px',
+      color: '#ffffff',
+      backgroundColor: '#20202a',
+      padding: { x: 2, y: 1 },
+    }).setOrigin(0.5, 1).setDepth(DEPTH.WORLD_ENTITIES);
+
+    const entry = { itemId, amount, visual, icon, countLabel, object: null };
+    const updatePrompt = () => {
+      entry.object.prompt?.setText(`[E] pick up ${definition.name} x${entry.amount}`);
+    };
+    entry.object = new InteractiveObject(scene, x, y, {
+      width: 18,
+      height: 18,
+      label: `[E] pick up ${definition.name} x${amount}`,
+      onInteract: () => {
+        const previousCount = InventoryManager.getItemCount(itemId);
+        QuestManager.collectItem(itemId, entry.amount);
+        const pickedUp = InventoryManager.getItemCount(itemId) - previousCount;
+        entry.amount -= pickedUp;
+
+        if (entry.amount <= 0) {
+          entry.object.destroy();
+          entry.visual.destroy();
+          entry.icon.destroy();
+          entry.countLabel.destroy();
+          this.droppedItems.splice(this.droppedItems.indexOf(entry), 1);
+          return;
+        }
+
+        entry.countLabel.setText(String(entry.amount));
+        updatePrompt();
+      },
+    });
+    this.droppedItems.push(entry);
+  }
+
   /** Longest the tracked-quest HUD line is allowed to get before truncating with "…". */
   static QUEST_HUD_MAX_CHARS = 64;
 
@@ -559,7 +753,9 @@ export class WorldScreenController extends ScreenController {
    * @returns {void}
    */
   onInput(action, event) {
-    if (action === 'toggle-mode') {
+    if (action === 'toggle-map') {
+      this.mapOverlay?.toggleFull();
+    } else if (action === 'toggle-mode') {
       this.mode = this.mode === MODE_NORMAL ? MODE_FIGHT : MODE_NORMAL;
       this._refreshModeLabel();
       this._fightStanceDirection = null;
@@ -575,12 +771,29 @@ export class WorldScreenController extends ScreenController {
       for (const pickup of this.scrapPickups) {
         if (isWithinRadius(this.actor.sprite, pickup.object.zone, PICKUP_RADIUS)) pickup.object.trigger();
       }
+      for (const droppedItem of [...this.droppedItems]) {
+        if (isWithinRadius(this.actor.sprite, droppedItem.object.zone, PICKUP_RADIUS)) droppedItem.object.trigger();
+      }
     } else if (action === 'open-quest-log') {
       this.engine.screenManager.push('quest_log');
+    } else if (action === 'open-inventory') {
+      this.engine.screenManager.push('inventory');
     } else if (action === 'cancel') {
-      // ASSUMPTION: module 09 explicitly leaves the "what resets a loop" decision to this
-      // example content (its own non-goal). Simplest standard choice for a jam demo: ESC in the
-      // World starts a fresh loop and gives a flash as feedback.
+      if (this.mapOverlay?.isOpen) {
+        this.mapOverlay.closeFull();
+        return;
+      }
+      // Backspace now opens the pause menu (see PauseMenuScreenController.js) instead of
+      // resetting the loop — it's pushed on top of this screen, which pauses it via the usual
+      // ScreenManager push flow (this controller's onPause/onResume already handle that).
+      this.engine.screenManager.push('pause_menu');
+    } else if (action === 'debug-reset-loop') {
+      // DEV-ONLY, moved off of Backspace/'cancel' (see above) now that Backspace is the
+      // pause-menu key — this used to be exactly the 'cancel' branch's body. Bound to R in
+      // config/controls.default.json's "movement" profile. Kept as a dev/testing affordance
+      // (not deleted) per the original ASSUMPTION this replaces: module 09 explicitly leaves
+      // the "what resets a loop" decision to this example content (its own non-goal); this is
+      // simply a different, clearly-separate trigger for the same existing behavior.
       LoopManager.startNewLoop();
       LoopManager.reset();
       FxManager.flash(this.engine.scene, '#ffffff', 150);
@@ -599,7 +812,23 @@ export class WorldScreenController extends ScreenController {
   }
 
   /** @returns {void} */
+  onPause() {
+    this.mapOverlay?.setVisible(false);
+  }
+
+  /** @returns {void} */
+  onResume() {
+    this.mapOverlay?.setVisible(true);
+  }
+
+  /** @returns {void} */
   onExit() {
+    if (this.engine.worldController === this) this.engine.worldController = null;
+    this._unsubscribeHitboxDebug?.();
+    this.engine.scene.physics.world.drawDebug = false; // stop postUpdate from touching the graphic we're about to destroy
+    this._physicsDebugGraphic.destroy();
+    this._tileDebugGraphic?.destroy();
+    this.mapOverlay?.destroy();
     this.actor.sprite.off('animationcomplete', this._onAttackAnimationComplete);
     for (const particle of this._attackParticles) {
       this.engine.scene.tweens.killTweensOf(particle);
@@ -610,6 +839,7 @@ export class WorldScreenController extends ScreenController {
     QuestManager.events.off('quest:assigned', this._onQuestAssigned);
     QuestManager.events.off('quest:objective-progress', this._onQuestProgress);
     QuestManager.events.off('quest:completed', this._onQuestCompleted);
+    InventoryManager.events.off('inventory:item-dropped', this._onInventoryItemDropped);
     this.toasts.destroy();
     this.actor.sprite.destroy();
     this.cat.destroy();
@@ -619,14 +849,15 @@ export class WorldScreenController extends ScreenController {
       pickup.object.destroy();
       pickup.visual.destroy();
     }
+    for (const droppedItem of this.droppedItems) {
+      droppedItem.object.destroy();
+      droppedItem.visual.destroy();
+      droppedItem.icon.destroy();
+      droppedItem.countLabel.destroy();
+    }
+    this.questBox.destroy();
     this.modeLabel.destroy();
     this.questHudLabel.destroy();
-    this.settingsButton.destroy();
+    this.hudPanel.destroy();
   }
-
-  /** @returns {void} */
-  onPause() {}
-
-  /** @returns {void} */
-  onResume() {}
 }

@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "id": "scrap_metal",
+      "name": "Scrap Metal",
+      "description": "A twisted piece of salvaged metal. Probably good for something.",
+      "stackable": true,
+      "maxStack": 99,
+      "usable": false
+    },
+    {
+      "id": "stim_pack",
+      "name": "Stim Pack",
+      "description": "A quick jolt of... something. Use it and see.",
+      "stackable": true,
+      "maxStack": 9,
+      "usable": true,
+      "consumeOnUse": true
+    },
+    {
+      "id": "rusty_key",
+      "name": "Rusty Key",
+      "description": "Opens something, probably. Doesn't look like it gets used up.",
+      "stackable": false,
+      "usable": true,
+      "consumeOnUse": false
+    }
+  ]
+}

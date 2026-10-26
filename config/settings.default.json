@@ -1,6 +1,6 @@
 {
   "audio": { "music": 0.7, "sfx": 0.8, "ambient": 0.5, "muted": false },
-  "video": { "pixelScale": "auto", "crtEnabled": true, "glitchEnabled": true, "reducedMotion": false },
+  "video": { "pixelScale": "auto", "crtEnabled": true, "glitchEnabled": true, "reducedMotion": false, "hitboxDebug": false },
   "controls": {},
   "accessibility": { "textSize": "normal" }
 }

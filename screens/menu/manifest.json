@@ -1,0 +1,10 @@
+{
+  "id": "menu",
+  "display_name": "Menu",
+  "controller": "MenuScreenController",
+  "input_profile": "menu-nav",
+  "background": "example_room",
+  "ui_windows": ["menu_panel"],
+  "transition_in": "fade",
+  "transition_out": "fade"
+}

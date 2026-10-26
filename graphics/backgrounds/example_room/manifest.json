@@ -1,9 +1,8 @@
 {
   "id": "example_room",
-  "display_name": "Example Room",
+  "display_name": "Menu Background",
   "type": "static",
   "layers": [
     { "image": "room.png" }
-  ],
-  "ambient_tint": "#dde8ff"
+  ]
 }

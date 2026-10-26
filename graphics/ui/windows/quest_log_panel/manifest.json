@@ -10,7 +10,7 @@
     { "id": "title", "type": "label", "text": "Quest Log", "x": 16, "y": 10 },
     { "id": "tab_active", "type": "button", "text": "Active", "action": "quest-log-tab:active", "x": 16, "y": 28, "width": 90, "height": 16 },
     { "id": "tab_completed", "type": "button", "text": "Completed", "action": "quest-log-tab:completed", "x": 112, "y": 28, "width": 90, "height": 16 },
-    { "id": "hint", "type": "label", "text": "[L] / [ESC] close", "x": 300, "y": 12 },
+    { "id": "hint", "type": "label", "text": "[L] / [Backspace] close", "x": 300, "y": 12 },
     {
       "id": "output",
       "type": "scrollable-text",

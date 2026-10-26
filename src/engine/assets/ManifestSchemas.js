@@ -110,7 +110,16 @@ export const SPRITE_MANIFEST_SCHEMA = {
       properties: {
         width: { type: 'number', min: 0 },
         height: { type: 'number', min: 0 },
-        offset_y: { type: 'number' },
+        // How far up from the bottom edge of a frame the art's feet actually sit. Either a
+        // single number applied to every frame size, OR an object keyed by frame pixel height
+        // (e.g. `{ "32": 1, "48": 8 }`) for sprites whose states are authored on differently
+        // sized canvases (e.g. static poses vs. animated walk/attack frames). The validator
+        // here only checks the "single number" shape and the "is an object" shape — the
+        // per-key numbers of the keyed form aren't schema-checked (this hand-rolled validator
+        // has no `anyOf`/numeric-map-values support); Actor.js's `_applyHitbox` is defensive
+        // about a missing/malformed entry regardless. See that method's doc for how this is
+        // used; omitted entirely, the hitbox sits flush with the frame's bottom edge.
+        margin_bottom: { type: ['number', 'object'] },
       },
     },
     scale: { type: 'number', exclusiveMin: 0 },

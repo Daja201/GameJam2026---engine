@@ -6,11 +6,18 @@
  *
  * ```jsonc
  * {
- *   "movement":   { "UP": "move-up", "DOWN": "move-down", "LEFT": "move-left", "RIGHT": "move-right", "E": "interact", "ENTER": "confirm", "ESC": "cancel" },
+ *   "movement":   { "UP": "move-up", "DOWN": "move-down", "LEFT": "move-left", "RIGHT": "move-right", "E": "interact", "ENTER": "confirm", "BACKSPACE": "cancel" },
  *   "text-entry": { "ENTER": "text-enter", "BACKSPACE": "text-backspace", "ESC": "cancel" },
- *   "menu-nav":   { "UP": "menu-up", "DOWN": "menu-down", "ENTER": "confirm", "ESC": "cancel" }
+ *   "menu-nav":   { "UP": "menu-up", "DOWN": "menu-down", "ENTER": "confirm", "BACKSPACE": "cancel" }
  * }
  * ```
+ *
+ * FIX (ESC -> Backspace): every profile's "cancel" key is now BACKSPACE instead of ESC, EXCEPT
+ * "text-entry" — that profile already binds BACKSPACE to "text-backspace" (deleting a typed
+ * character, see TextInput.js/TerminalScreenController.js), and one key can only map to one
+ * action per profile, so rebinding it to "cancel" there too would silently break backspacing text.
+ * "text-entry" (used only by the Terminal screen) therefore keeps ESC as its one remaining
+ * "cancel" key, as a deliberate, narrow exception to the rest of this rebind.
  * Key names are checked against Phaser's KeyCodes by InputRouter.setProfile (this file has no Phaser import).
  *
  * @module input/InputProfiles

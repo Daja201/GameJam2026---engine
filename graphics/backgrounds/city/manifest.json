@@ -1,0 +1,12 @@
+{
+  "id": "city",
+  "display_name": "City",
+  "type": "tilemap",
+  "layers": [],
+  "tilemap": {
+    "source": "city.json",
+    "tileset_image": "tileset.png",
+    "collision_layer": "city"
+  },
+  "ambient_tint": "#eef2ff"
+}

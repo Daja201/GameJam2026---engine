@@ -49,7 +49,22 @@ export function buildPhaserConfig(sceneList) {
     pixelArt: true,
     antialias: false,
     roundPixels: true,
-    physics: { default: 'arcade', arcade: { debug: false } },
+    // `debug: false` keeps Arcade's built-in debug graphic OFF (and undrawn) at boot — the
+    // Settings > "Show Hitboxes" toggle (see WorldScreenController's hitbox-debug block) turns it
+    // on at runtime via `scene.physics.world.drawDebug`. The three debug* fields below only set
+    // the COLOR/behavior new bodies are born with (Phaser reads them once, at Body/StaticBody
+    // construction, into `world.defaults`) — red for both moving bodies (player, companion) and
+    // static ones (the PC/pickup/quest-marker interact zones), with the yellow velocity line off
+    // so the overlay is plain red rectangles, not rectangles-plus-arrows.
+    physics: {
+      default: 'arcade',
+      arcade: {
+        debug: false,
+        debugBodyColor: 0xff0000,
+        debugStaticBodyColor: 0xff0000,
+        debugShowVelocity: false,
+      },
+    },
     scale: { mode: Phaser.Scale.NONE, autoCenter: Phaser.Scale.CENTER_BOTH },
     scene: sceneList,
   };

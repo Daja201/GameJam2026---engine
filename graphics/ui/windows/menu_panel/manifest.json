@@ -1,0 +1,29 @@
+{
+  "id": "menu_panel",
+  "display_name": "Menu",
+  "_comment": "skin reuses 'default_panel' texture (graphics/ui/windows/default_panel/panel.png) — this project has no dedicated menu-skin art asset; see MenuScreenController.js's module docstring.",
+  "skin": "default_panel",
+  "anchor": "center",
+  "modal": false,
+  "size": { "width": 220, "height": 128 },
+  "layout": "free",
+  "elements": [
+    {
+      "id": "title_label",
+      "type": "label",
+      "text": "GAME JAM 2026",
+      "x": 16,
+      "y": 16,
+      "_comment": "Title slot: swap the game's name by editing this one field, or call windowHandle.getElement('title_label') from code/a future asset to replace it (e.g. with a logo image) without touching WindowFactory layout code."
+    },
+    { "id": "start_button", "type": "button", "text": "Start", "action": "menu-start", "x": 16, "y": 60, "width": 188, "height": 22 },
+    {
+      "id": "credit_label",
+      "type": "label",
+      "text": "Github: Daja201",
+      "x": 8,
+      "y": 112,
+      "_comment": "Static credit line pinned to the panel's bottom-left corner — no binding/action, see MenuScreenController.js's CREDIT LINE doc."
+    }
+  ]
+}

@@ -11,6 +11,7 @@ import { ScreenManager } from './engine/screens/ScreenManager.js';
 import { WindowFactory } from './engine/ui/WindowFactory.js';
 import { LoopManager } from './engine/loop/LoopManager.js';
 import { QuestManager } from './engine/quest/QuestManager.js';
+import { InventoryManager } from './engine/inventory/InventoryManager.js';
 import { registerAction } from './engine/ui/ActionRegistry.js';
 import { buildEngineContext } from './game/EngineContext.js';
 import { registerAllControllers } from './game/bootstrap/registerControllers.js';
@@ -43,8 +44,30 @@ class BootScene extends Phaser.Scene {
 
   /** @returns {void} */
   preload() {
+    // FIX (missing-graphics placeholder color): Phaser's own fallback for a failed image load is
+    // its built-in "missing texture" (a jarring magenta/black checker) — never themed, never this
+    // project's own look. Any `scene.load.image(key, path)` call whose file 404s (an
+    // not-yet-authored sprite/background/window-skin PNG — see PreloadQueueBuilder.js's own
+    // "a missing PNG just triggers Phaser's normal loaderror" note) now instead gets a flat,
+    // solid-color placeholder generated right here, in this project's one recurring accent color
+    // (teal/cyan-green, `#35e0a8` — the same color HudPanel's bar fill, MapOverlay's ring border,
+    // and WindowFactory's new scrollbar all already use) rather than a generic gray or Phaser's
+    // magenta. One listener, attached before any `scene.load.image(...)` call anywhere in this
+    // bootstrap (AssetRegistry.scan, PreloadQueueBuilder, the window-skin/HUD loads further down
+    // in create()) runs through this same `this.load`, so this single early registration covers
+    // every one of them.
+    this.load.on('loaderror', (file) => {
+      if (file.type !== 'image' || this.textures.exists(file.key)) return;
+      const placeholder = this.make.graphics({ x: 0, y: 0, add: false });
+      placeholder.fillStyle(0x35e0a8, 1);
+      placeholder.fillRect(0, 0, 32, 32);
+      placeholder.generateTexture(file.key, 32, 32);
+      placeholder.destroy();
+    });
+
     this.load.json('controls-config', 'config/controls.default.json');
     this.load.json('quests-config', 'config/quests.default.json');
+    this.load.json('items-config', 'config/items.default.json');
   }
 
   /** @returns {Promise<void>} */
@@ -74,6 +97,26 @@ class BootScene extends Phaser.Scene {
       }
     }
 
+    // HUD panel art (module 11 addition): not part of any manifest-driven system (sprites,
+    // backgrounds, windows) — it's a handful of fixed, always-on HUD images (portrait/ring frame
+    // and status bar), so it's simplest to just queue them directly here, the same way the
+    // window-skin panel textures above are queued directly rather than going through
+    // AssetRegistry. See src/game/ui/HudPanel.js for the keys used.
+    // FIX (map button removed): 'hud:map' (the old clickable Map button face) is no longer loaded
+    // — HudPanel.js's Map entry is now plain hint text, same as Quest Log/Inventory/Pause, with
+    // no button image at all. 'hud:quit' was already unused (left loaded harmlessly before this
+    // revision); both are dropped now that nothing in this column is a clickable image anymore.
+    this.load.image('hud:portrait', 'graphics/ui/hud/portrait.png');
+    // FIX (minimap ring): portrait.png is the same ring-shaped frame graphic — it was being used
+    // as a top-left "character portrait" icon, which is what it visually is NOT (it's a plain
+    // ring with a filled, opaque interior). minimap_ring.png is a processed copy with that
+    // interior punched fully transparent (see the asset's generation note in MapOverlay.js),
+    // so the live minimap camera can actually show through it instead of being hidden behind an
+    // opaque navy disc. 'hud:portrait' is left loaded too, harmlessly unused, in case anything
+    // else ever wants the solid (non-hollow) version of this graphic.
+    this.load.image('hud:minimap_ring', 'graphics/ui/hud/minimap_ring.png');
+    this.load.image('hud:bar', 'graphics/ui/hud/bar.png');
+
     await runLoadQueue(this);
 
     // 3) Settings + audio (module 10).
@@ -101,6 +144,14 @@ class BootScene extends Phaser.Scene {
     // 6) Register example-content controllers (module 06's registry, this module's classes).
     registerAllControllers();
 
+    // 6a) Inventory system (engine/inventory/InventoryManager.js): register this project's item
+    // content, then restore any saved slot contents. Loaded BEFORE the quest system below since
+    // `QuestManager.collectItem()` now delegates straight into `InventoryManager.addItem()` (see
+    // QuestManager.js's module docstring) — its definitions must already be registered by then.
+    const itemsConfigJson = this.cache.json.get('items-config');
+    InventoryManager.loadDefinitions(itemsConfigJson.items);
+    InventoryManager.load();
+
     // 6b) Quest system (engine/quest/QuestManager.js): register this project's quest content,
     // then restore any saved progress, then auto-start whichever quests the config lists (a
     // design choice of THIS bootstrap, not the quest engine — QuestManager itself never assigns
@@ -109,12 +160,11 @@ class BootScene extends Phaser.Scene {
     const questsConfigJson = this.cache.json.get('quests-config');
     QuestManager.loadDefinitions(questsConfigJson.quests);
     QuestManager.load();
-    // NOTE: auto-starting is deferred until AFTER `screenManager.switchTo('world')` below (see
-    // end of this method) rather than happening here. WorldScreenController subscribes to
-    // QuestManager's events in its own onEnter to show "Quest Started" toasts (ToastNotifier.js);
-    // assigning here, before that screen exists, would silently miss those toasts for every
-    // auto-started quest. Assigning after the World screen is mounted means the player actually
-    // sees them pop in right as the game starts — the same beat most quest-driven games use.
+    // NOTE: auto-starting is deferred until the player presses Start on the menu screen and the
+    // World screen actually mounts (see the 'menu-start' action registered below) rather than
+    // happening here. WorldScreenController subscribes to QuestManager's events in its own
+    // onEnter to show "Quest Started" toasts (ToastNotifier.js); assigning here, before that
+    // screen exists, would silently miss those toasts for every auto-started quest.
 
     // 6c) Quest Log UI wiring: the two tab buttons in `quest_log_panel`'s manifest invoke the
     // parameterized action `"quest-log-tab:<tab>"` (see ActionRegistry.js's parameterized-action
@@ -123,6 +173,64 @@ class BootScene extends Phaser.Scene {
     // `engine.screenManager` to reach whichever controller is currently on top.
     registerAction('quest-log-tab', (context) => {
       engine.screenManager.topController?.setTab?.(context.arg);
+    });
+
+    // 6c-bis) Inventory UI wiring: same closing-over-topController pattern as the quest-log tab
+    // buttons above, for `inventory_panel`'s Use/Drop buttons (see InventoryScreenController.js).
+    registerAction('inventory-use', () => {
+      engine.screenManager.topController?.useSelected?.();
+    });
+    registerAction('inventory-drop', () => {
+      engine.screenManager.topController?.dropSelected?.();
+    });
+
+    // 6c-ter) Menu screen wiring (see MenuScreenController.js and screens/menu/manifest.json):
+    // 'menu-start' is the unified Start/Resume button's action. It lives here, not on the
+    // controller, because "starting fresh" also has to run the SAME quest auto-start step that
+    // used to run immediately after `screenManager.switchTo('world')` at the bottom of this
+    // method (see the NOTE that used to sit there, now moved here) — this is the one place that
+    // already holds both `engine` and `questsConfigJson`, same reasoning as the quest-log/
+    // inventory action wiring just above. `engine.worldController` (set/cleared by
+    // WorldScreenController's onEnter/onExit) is truthy exactly when a game is already in
+    // progress, i.e. this menu was opened as a pause screen — see MenuScreenController's class
+    // docstring for why no separate "game started" flag is needed.
+    registerAction('menu-start', () => {
+      if (engine.worldController) {
+        engine.screenManager.pop(); // Resume: back to the already-running World screen.
+        return;
+      }
+      // Start: enter the World screen for the first time, then auto-start whichever quests the
+      // config lists — deferred until after the World screen actually exists so its toast
+      // notifications (subscribed in WorldScreenController.onEnter) can show them.
+      engine.screenManager.switchTo('world').then(() => {
+        for (const questId of questsConfigJson.autoStart ?? []) {
+          if (!QuestManager.isQuestActive(questId) && !QuestManager.isQuestCompleted(questId)) {
+            QuestManager.assignQuest(questId);
+          }
+        }
+      });
+    });
+    registerAction('menu-settings', () => {
+      engine.screenManager.push('settings_modal');
+    });
+
+    // 6c-quater) Pause menu wiring (see PauseMenuScreenController.js and
+    // graphics/ui/windows/pause_panel/manifest.json): the Map/Inventory/Quests buttons that
+    // screen's old unified-menu ancestor never had. Registered here for the same reason as
+    // 'menu-start'/'menu-settings' just above: this is the one place already holding `engine`.
+    registerAction('pause-open-inventory', () => {
+      engine.screenManager.push('inventory');
+    });
+    registerAction('pause-open-quests', () => {
+      engine.screenManager.push('quest_log');
+    });
+    registerAction('pause-open-map', () => {
+      // MapOverlay belongs to the (currently paused, currently hidden — see
+      // WorldScreenController.onPause) World screen, not to this pause menu, so the World screen
+      // has to actually be resumed (popping this one off) before its full map can be toggled on.
+      engine.screenManager.pop().then(() => {
+        engine.worldController?.mapOverlay?.toggleFull();
+      });
     });
 
     // BUG FIX: ActionRegistry.js's built-in 'close-window' only closes the WindowHandle
@@ -161,7 +269,7 @@ class BootScene extends Phaser.Scene {
         'Hard reset: this wipes ALL quest progress/history and settings, and reloads the game. Continue?'
       );
       if (!confirmed) return;
-      QuestManager.resetAll();
+      QuestManager.resetAll(); // also clears InventoryManager (see QuestManager.resetAll()'s doc)
       // Remove every `hackjam:*` key (quests, settings, and any future ones) rather than
       // hardcoding today's schema-versioned key names, so this keeps working if either module's
       // SCHEMA_VERSION changes later.
@@ -186,15 +294,10 @@ class BootScene extends Phaser.Scene {
     // directly here, which the browser would just reject.
     DisplayManager.requestFullscreenOnFirstInput(this.game);
 
-    await engine.screenManager.switchTo('world');
-
-    // See the NOTE above step 6b: auto-start quests now that the World screen (and its toast
-    // notifications) actually exists to react to them.
-    for (const questId of questsConfigJson.autoStart ?? []) {
-      if (!QuestManager.isQuestActive(questId) && !QuestManager.isQuestCompleted(questId)) {
-        QuestManager.assignQuest(questId);
-      }
-    }
+    // Boot into the unified menu screen (main menu) rather than straight into World — see
+    // MenuScreenController.js. Quest auto-start now happens inside the 'menu-start' action
+    // registered above, once the player actually presses Start and the World screen mounts.
+    await engine.screenManager.switchTo('menu');
   }
 
   /**

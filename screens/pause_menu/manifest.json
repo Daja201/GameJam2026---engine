@@ -1,0 +1,10 @@
+{
+  "id": "pause_menu",
+  "display_name": "Pause",
+  "controller": "PauseMenuScreenController",
+  "input_profile": "menu-nav",
+  "background": null,
+  "ui_windows": ["pause_panel"],
+  "transition_in": "instant",
+  "transition_out": "instant"
+}

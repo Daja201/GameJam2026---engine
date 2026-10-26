@@ -34,11 +34,18 @@ const DEFAULT_ACCENT = 0x8aa8ff;
 
 /**
  * @param {Phaser.Scene} scene
- * @returns {{ show(message: string, opts?: { accentColor?: number }): void, destroy(): void }}
+ * @returns {{ show(message: string, opts?: { accentColor?: number }): void, root: Phaser.GameObjects.Container, destroy(): void }}
  */
 export function createToastNotifier(scene) {
   /** @type {{ container: Phaser.GameObjects.Container }[]} active toasts, oldest first */
   const active = [];
+
+  // Every toast is parented under this one persistent container, so a caller that needs to
+  // exclude the whole HUD from some other camera (e.g. `world/MapOverlay.js`'s minimap/full-map
+  // cameras) can just ignore `root` once, up front, and have it cover every toast shown later —
+  // Phaser's camera.ignore() on a Container also skips rendering its current children.
+  const root = scene.add.container(0, 0);
+  root.setDepth(DEPTH.UI_HUD + 1);
 
   /** Re-tweens every active toast to its correct stacked y position. @returns {void} */
   function reflow() {
@@ -72,8 +79,8 @@ export function createToastNotifier(scene) {
 
     const container = scene.add.container(startX, MARGIN, [bg, accentBar, text]);
     container.setScrollFactor(0);
-    container.setDepth(DEPTH.UI_HUD + 1);
     container.setAlpha(0);
+    root.add(container);
 
     const entry = { container };
     active.push(entry);
@@ -106,6 +113,8 @@ export function createToastNotifier(scene) {
 
   return {
     show,
+    /** Parent of every toast shown by this notifier — see the constant-time note above. */
+    root,
     /** Immediately removes every active toast (no fade). @returns {void} */
     destroy() {
       for (const toast of active) {
@@ -113,6 +122,7 @@ export function createToastNotifier(scene) {
         toast.container.destroy();
       }
       active.length = 0;
+      root.destroy();
     },
   };
 }

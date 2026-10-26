@@ -3,6 +3,7 @@ import { CLIParser } from '../../engine/terminal/CLIParser.js';
 import { exampleFileSystem, EXAMPLE_TARGET_PASSWORD } from '../../engine/terminal/fakeFileSystem.example.js';
 import { createCRTOverlay } from '../../engine/terminal/CRTOverlay.js';
 import { LoopManager } from '../../engine/loop/LoopManager.js';
+import { InventoryManager } from '../../engine/inventory/InventoryManager.js';
 
 /** Id `LoopManager.addFragment` is recorded under for a successful crack. */
 const FRAGMENT_ID = 'terminal-root';
@@ -36,6 +37,7 @@ export class TerminalScreenController extends ScreenController {
     const { scene } = this.engine;
 
     this.parser = new CLIParser(scene.events, exampleFileSystem, EXAMPLE_TARGET_PASSWORD);
+    this._registerInventoryCommands(this.parser);
 
     // This screen's manifest lists `ui_windows: ["terminal_output"]`, so ScreenManager already
     // built it and stored the handle on `this.windows` before calling onEnter.
@@ -98,6 +100,48 @@ export class TerminalScreenController extends ScreenController {
   _redrawPrompt() {
     const cursor = this._cursorOn ? '\u2588' : ' '; // U+2588 FULL BLOCK, classic terminal caret
     this.output.setPendingLine(`> ${this.buffer}${cursor}`);
+  }
+
+  /**
+   * Registers this game's `inventory`/`give`/`use` commands onto a freshly-built `CLIParser`
+   * instance (content, not engine — `CLIParser` itself only knows about its own built-ins; see
+   * its module docstring's note on adding commands from outside via `registerCommand`). `give`
+   * is the hacking-theme entry point for granting items from the terminal (alongside world
+   * pickups and quest rewards — see `InventoryManager.js`'s module docstring).
+   * @param {CLIParser} parser
+   * @private
+   * @returns {void}
+   */
+  _registerInventoryCommands(parser) {
+    parser.registerCommand('inventory', () => {
+      const slots = InventoryManager.getSlots().filter((slot) => slot.itemId !== null);
+      if (slots.length === 0) return ['(inventory empty)'];
+      return slots.map((slot) => {
+        const definition = InventoryManager.getItemDefinition(slot.itemId);
+        const stackTag = definition?.stackable ? ` x${slot.count}` : '';
+        return `[${slot.slotIndex}] ${definition?.name ?? slot.itemId}${stackTag}`;
+      });
+    }, 'list inventory contents');
+
+    parser.registerCommand('give', (args) => {
+      const [itemId, countArg] = args;
+      if (!itemId) return ['usage: give <itemId> [count]'];
+      if (!InventoryManager.getItemDefinition(itemId)) return [`give: unknown item "${itemId}"`];
+      const count = Number.isInteger(Number(countArg)) && Number(countArg) > 0 ? Number(countArg) : 1;
+      const leftover = InventoryManager.addItem(itemId, count);
+      const gained = count - leftover;
+      if (gained <= 0) return ['give: inventory full, nothing granted'];
+      return leftover > 0
+        ? [`granted ${gained}x ${itemId} (inventory full, ${leftover} lost)`]
+        : [`granted ${gained}x ${itemId}`];
+    }, 'give <itemId> [count] - grant yourself an item (debug/hacking)');
+
+    parser.registerCommand('use', (args) => {
+      const slotIndex = Number(args[0]);
+      if (!Number.isInteger(slotIndex)) return ['usage: use <slot>'];
+      const definition = InventoryManager.useItem(slotIndex);
+      return definition ? [`used ${definition.name}`] : [`use: slot ${slotIndex} is empty`];
+    }, 'use <slot> - use an item by its inventory slot number');
   }
 
   /** @returns {void} */

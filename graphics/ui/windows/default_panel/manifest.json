@@ -14,6 +14,8 @@
     { "id": "sfx_slider", "type": "slider", "bind": "audio.sfx", "min": 0, "max": 1, "width": 96 },
     { "id": "crt_label", "type": "label", "text": "CRT scanlines" },
     { "id": "crt_toggle", "type": "toggle", "bind": "video.crtEnabled" },
+    { "id": "hitbox_label", "type": "label", "text": "Show Hitboxes (debug)" },
+    { "id": "hitbox_toggle", "type": "toggle", "bind": "video.hitboxDebug" },
     { "id": "hard_reset_button", "type": "button", "text": "Hard Reset (dev)", "action": "hard-reset" },
     { "id": "close_button", "type": "button", "text": "Close", "action": "close-window" }
   ]

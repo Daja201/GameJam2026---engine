@@ -46,6 +46,11 @@ function resolveLayerDepth(depth) {
  * @property {() => Phaser.Tilemaps.TilemapLayer|null} getCollisionLayer - null unless type === 'tilemap'
  *   with a `collision_layer` configured
  * @property {(hexColor: string) => void} setAmbientTint - tints every layer/image created, e.g. "#88aaff"
+ * @property {() => {width:number, height:number}|null} getMapSize
+ *   FIX: added so callers (WorldScreenController) can set `physics.world.setBounds(...)` and
+ *   `cameras.main.setBounds(...)` to the ACTUAL map size for any tilemap background, instead of
+ *   every screen controller having to know/hardcode a specific map's dimensions. Null for
+ *   non-tilemap backgrounds (parallax/static have no inherent "world size" to bound movement to).
  */
 
 /** Singleton that builds and swaps backgrounds. Implements the shared `BackgroundLoader` interface. */
@@ -127,7 +132,19 @@ export const BackgroundLoader = {
         // `manifest.layers` (key `${id}:layer:${i}`) — there is no separate `:image` convention.
         // A 'static' background is therefore authored as a single-entry `layers` array and uses
         // that same layer-0 texture key.
-        const image = scene.add.image(0, 0, `${manifest.id}:layer:0`).setOrigin(0, 0);
+        const image = scene.add.image(INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2, `${manifest.id}:layer:0`).setOrigin(0.5, 0.5);
+        // FIX (full-screen static backgrounds): this used to be drawn at the source image's own
+        // native pixel size, anchored top-left — fine only when the art happens to exactly
+        // match INTERNAL_WIDTH x INTERNAL_HEIGHT (480x270). Any other size (e.g. a 256x118
+        // photo) left most of the canvas empty and the image sitting in the corner instead of
+        // filling/centering it. 'static' backgrounds are meant to be a full-screen slot (see
+        // this file's own BackgroundHandle doc and ScreenManifest's `background` field), so this
+        // now scales the image uniformly to COVER the internal canvas (like CSS
+        // `background-size: cover`): scale by whichever axis needs more enlargement, so the
+        // other axis overflows and gets centered/cropped rather than leaving bars. The source
+        // image's aspect ratio is preserved (no stretch/distortion).
+        const coverScale = Math.max(INTERNAL_WIDTH / image.width, INTERNAL_HEIGHT / image.height);
+        image.setScale(coverScale);
         displayObjects.push(image);
         tintables.push(image);
         break;
@@ -149,6 +166,10 @@ export const BackgroundLoader = {
       },
       getCollisionLayer() {
         return manifest.type === 'tilemap' ? collisionLayer : null;
+      },
+      getMapSize() {
+        if (manifest.type !== 'tilemap' || !tilemap) return null;
+        return { width: tilemap.widthInPixels, height: tilemap.heightInPixels };
       },
       setAmbientTint(hexColor) {
         const color = Phaser.Display.Color.HexStringToColor(hexColor).color;

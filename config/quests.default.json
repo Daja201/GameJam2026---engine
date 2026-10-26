@@ -12,7 +12,8 @@
           "targetId": "world_pc",
           "description": "Interact with the PC"
         }
-      ]
+      ],
+      "rewardItems": [{ "itemId": "rusty_key", "count": 1 }]
     },
     {
       "id": "scrap_run",
@@ -26,7 +27,8 @@
           "count": 2,
           "description": "Collect 2x Scrap Metal"
         }
-      ]
+      ],
+      "rewardItems": [{ "itemId": "stim_pack", "count": 1 }]
     },
     {
       "id": "find_the_clearing",

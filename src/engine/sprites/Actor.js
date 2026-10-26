@@ -11,8 +11,11 @@ import { animKey, getDirections, registerAnimations } from './AnimationFactory.j
  * - Constructor takes a `spriteId` (shared contract wins over module 04's prompt, which said
  *   manifest). For convenience a manifest object is also accepted.
  * - `pivot` defaults to (0.5, 0.5) when the manifest omits it.
- * - `hitbox.offset_y` is the distance in pixels from the TOP of the frame to the top of the hitbox
- *   (the hitbox is horizontally centered in the frame).
+ * - `hitbox` is horizontally centered and bottom-anchored on each frame's REAL pixel size
+ *   (not `manifest.frame_size`, which can be smaller than some states' actual art — e.g. this
+ *   sprite's walk/attack frames are authored on a larger canvas than its idle/fight frames).
+ *   `hitbox.margin_bottom` is how far up from the frame's bottom edge the feet actually sit;
+ *   see `_applyHitbox`'s own doc for the full reasoning and the per-frame-size keyed form.
  * - Initial state is "idle" if the manifest has one, otherwise its first state.
  * - Initial direction is "south" if supported, otherwise the first supported direction.
  * - 'free-rotation' sprites rotate the whole sprite (art should point east at 0 degrees).
@@ -58,14 +61,6 @@ export class Actor {
     this.sprite.setOrigin(pivot.x, pivot.y);
     this.sprite.setScale(this.manifest.scale ?? 1);
     this.sprite.setDepth(DEPTH.WORLD_ENTITIES);
-
-    const hitbox = this.manifest.hitbox;
-    if (hitbox) {
-      const frameWidth = this.manifest.frame_size.width;
-      this.sprite.body
-        .setSize(hitbox.width, hitbox.height)
-        .setOffset((frameWidth - hitbox.width) / 2, hitbox.offset_y ?? 0);
-    }
 
     // For frame-event detection in update().
     this._lastAnimKey = null;
@@ -186,5 +181,52 @@ export class Actor {
       return;
     }
     this.sprite.anims.play(key, true);
+    this._applyHitbox(key);
+  }
+
+  /**
+   * Re-fits the Arcade body to `manifest.hitbox`, bottom-and-horizontally-centered on the
+   * REAL pixel size of the frames this animation actually uses (not `manifest.frame_size`,
+   * which is only a nominal/authoring value and can be smaller than some states' art).
+   *
+   * WHY THIS EXISTS: different states are authored on different canvas sizes — e.g. this
+   * sprite's static idle/fight art is 32x32px, but its walk/attack frames are 48x48px (more
+   * canvas around the body for limb swing). A hitbox sized/offset once, in the constructor,
+   * against a single frame's dimensions goes stale the moment the Actor switches to a state
+   * drawn on a differently-sized canvas: same offset number now lands somewhere else on the
+   * character (e.g. drifts up off the feet toward the torso), because "distance from the top
+   * of the frame" means something different on a 48px-tall canvas than on a 32px-tall one.
+   * Calling this every time the animation key changes (not every rendered frame — frames
+   * within one animation share one canvas size, so there's nothing to recompute mid-animation)
+   * keeps the box anchored to the feet regardless of which canvas size is currently playing.
+   *
+   * `hitbox.margin_bottom` is how far UP from the bottom of the frame the art's feet actually
+   * sit, keyed by that frame's pixel height (frames with no matching key fall back to the
+   * smallest configured margin, i.e. "assume feet are near the bottom"). A plain number applies
+   * to every frame size. Omit it entirely to keep the box flush with the frame's bottom edge.
+   * @private
+   * @param {string} animationKey
+   * @returns {void}
+   */
+  _applyHitbox(animationKey) {
+    const hitbox = this.manifest.hitbox;
+    if (!hitbox) return;
+
+    const anim = this.scene.anims.get(animationKey);
+    const frame = anim.frames[0].frame; // every frame in one animation shares one canvas size
+    const frameWidth = frame.width;
+    const frameHeight = frame.height;
+
+    let marginBottom = 0;
+    if (typeof hitbox.margin_bottom === 'number') {
+      marginBottom = hitbox.margin_bottom;
+    } else if (hitbox.margin_bottom) {
+      const byHeight = hitbox.margin_bottom[String(frameHeight)];
+      marginBottom = byHeight ?? Math.min(...Object.values(hitbox.margin_bottom));
+    }
+
+    this.sprite.body
+      .setSize(hitbox.width, hitbox.height)
+      .setOffset((frameWidth - hitbox.width) / 2, frameHeight - hitbox.height - marginBottom);
   }
 }

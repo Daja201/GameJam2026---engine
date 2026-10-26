@@ -1,0 +1,18 @@
+{
+  "id": "pause_panel",
+  "display_name": "Pause",
+  "_comment": "skin reuses 'default_panel' texture (graphics/ui/windows/default_panel/panel.png) — this project has no dedicated pause-skin art asset, same reasoning as menu_panel (see MenuScreenController.js's module docstring).",
+  "skin": "default_panel",
+  "anchor": "center",
+  "modal": true,
+  "size": { "width": 220, "height": 196 },
+  "layout": "free",
+  "elements": [
+    { "id": "title_label", "type": "label", "text": "PAUSED", "x": 16, "y": 16 },
+    { "id": "resume_button", "type": "button", "text": "Resume", "action": "menu-start", "x": 16, "y": 42, "width": 188, "height": 22 },
+    { "id": "map_button", "type": "button", "text": "Map", "action": "pause-open-map", "x": 16, "y": 70, "width": 188, "height": 22 },
+    { "id": "inventory_button", "type": "button", "text": "Inventory", "action": "pause-open-inventory", "x": 16, "y": 98, "width": 188, "height": 22 },
+    { "id": "quests_button", "type": "button", "text": "Quests", "action": "pause-open-quests", "x": 16, "y": 126, "width": 188, "height": 22 },
+    { "id": "settings_button", "type": "button", "text": "Settings", "action": "menu-settings", "x": 16, "y": 154, "width": 188, "height": 22 }
+  ]
+}

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { QuestValidationError } from './QuestValidationError.js';
+import { InventoryManager } from '../inventory/InventoryManager.js';
 
 /**
  * Full-on, content-agnostic quest system: register quest *definitions* (data, never hardcoded
@@ -18,6 +19,23 @@ import { QuestValidationError } from './QuestValidationError.js';
  * or via `createAndAssignQuest()` (built entirely at runtime by *calling* code, e.g. a screen
  * controller or a terminal command deciding to hand the player a brand new quest on the fly —
  * this is the "assign whatever quest" entry point).
+ *
+ * ITEM TRACKING (CHANGED): item state used to be a tiny private `_inventory` Map living only in
+ * this file, used solely to satisfy `collect_item` objectives. That has been pulled out into its
+ * own full module, `engine/inventory/InventoryManager.js` (slots, stacking, use, drop — see its
+ * docstring), which is now the single source of truth for "what does the player have". This
+ * module's `collectItem`/`getItemCount`/`hasItem` below are now thin delegations to it, kept here
+ * only because `collect_item` objectives and existing callers (e.g. world pickups) already expect
+ * this exact API on `QuestManager`. `collectItem` reports quest progress for however many units
+ * `InventoryManager.addItem` *actually* accepted — if the player's inventory is full, progress
+ * stalls at the true collected amount rather than over-crediting a `collect_item` objective for
+ * an item that was never really acquired.
+ *
+ * REWARD ITEMS: a quest definition may optionally list `rewardItems: [{ itemId, count? }]`. This
+ * module does not grant them itself (same "no content coupling" reasoning as everywhere else
+ * here) — it only validates the field and attaches it to the `'quest:completed'` event payload so
+ * game-layer content (see `game/controllers/WorldScreenController.js`) can call
+ * `InventoryManager.addItem` for each one when it sees that event.
  *
  * OBJECTIVE TYPES (the generic vocabulary every quest is built from — "getting some item" and
  * "getting somewhere" are just two instances of this, not special-cased anywhere below):
@@ -83,6 +101,23 @@ function validateQuestDefinition(def) {
   if (!Array.isArray(def.objectives) || def.objectives.length === 0) {
     throw new QuestValidationError(id, 'objectives', 'must be a non-empty array');
   }
+  if (def.rewardItems !== undefined) {
+    if (!Array.isArray(def.rewardItems)) {
+      throw new QuestValidationError(id, 'rewardItems', 'must be an array if present');
+    }
+    def.rewardItems.forEach((reward, index) => {
+      const path = `rewardItems[${index}]`;
+      if (reward === null || typeof reward !== 'object') {
+        throw new QuestValidationError(id, path, 'must be an object');
+      }
+      if (typeof reward.itemId !== 'string' || reward.itemId.length === 0) {
+        throw new QuestValidationError(id, `${path}.itemId`, 'must be a non-empty string');
+      }
+      if (reward.count !== undefined && (!Number.isInteger(reward.count) || reward.count < 1)) {
+        throw new QuestValidationError(id, `${path}.count`, 'must be a positive integer if present');
+      }
+    });
+  }
 
   const seenObjectiveIds = new Set();
   def.objectives.forEach((objective, index) => {
@@ -144,11 +179,6 @@ class QuestManagerImpl {
      * }>}
      */
     this._state = new Map();
-
-    /** @type {Map<string, number>} itemId -> count collected (a minimal built-in inventory, only
-     * used to satisfy `collect_item` objectives; full-featured inventory systems can still call
-     * `collectItem` to drive quest progress without this module knowing anything else about them) */
-    this._inventory = new Map();
 
     /** @type {string|null} the one quest a HUD is expected to keep showing — see `setTrackedQuest`. */
     this._trackedQuestId = null;
@@ -269,23 +299,27 @@ class QuestManagerImpl {
   }
 
   /**
-   * Records `amount` (default 1) of an item as collected, then progresses every active quest's
-   * not-yet-done `collect_item` objectives targeting that exact `itemId`, by whatever is needed
-   * (never over-crediting an objective past its own `count`; leftover amount is simply not
-   * "spent" further — this module keeps no notion of consuming items for a specific quest).
+   * Adds `amount` (default 1) of an item to `InventoryManager` (see module docstring's ITEM
+   * TRACKING note), then progresses every active quest's not-yet-done `collect_item` objectives
+   * targeting that exact `itemId` by however many units were ACTUALLY accepted into the inventory
+   * (never over-crediting an objective past its own `count`, and never crediting more than
+   * `InventoryManager.addItem` reports as added — if the inventory is full, progress stalls at
+   * the true collected amount rather than counting units that were never really acquired).
    * @param {string} itemId
    * @param {number} [amount]
    * @returns {void}
    */
   collectItem(itemId, amount = 1) {
-    this._inventory.set(itemId, (this._inventory.get(itemId) ?? 0) + amount);
+    const leftover = InventoryManager.addItem(itemId, amount);
+    const actuallyAdded = amount - leftover;
+    if (actuallyAdded <= 0) return;
 
     for (const [questId, state] of this._state) {
       if (state.status !== 'active') continue;
       const definition = this._definitions.get(questId);
       for (const objective of definition.objectives) {
         if (objective.type === 'collect_item' && objective.itemId === itemId) {
-          this._progressObjective(questId, objective.id, amount);
+          this._progressObjective(questId, objective.id, actuallyAdded);
         }
       }
     }
@@ -294,19 +328,21 @@ class QuestManagerImpl {
 
   /**
    * @param {string} itemId
-   * @returns {number} how many of that item have been collected so far (0 if none)
+   * @returns {number} how many of that item are currently in the inventory (delegates to
+   *   `InventoryManager.getItemCount`; see module docstring's ITEM TRACKING note)
    */
   getItemCount(itemId) {
-    return this._inventory.get(itemId) ?? 0;
+    return InventoryManager.getItemCount(itemId);
   }
 
   /**
    * @param {string} itemId
    * @param {number} [amount]
-   * @returns {boolean} whether at least `amount` (default 1) of that item has been collected
+   * @returns {boolean} whether at least `amount` (default 1) of that item is currently held
+   *   (delegates to `InventoryManager.hasItem`)
    */
   hasItem(itemId, amount = 1) {
-    return this.getItemCount(itemId) >= amount;
+    return InventoryManager.hasItem(itemId, amount);
   }
 
   /**
@@ -403,7 +439,11 @@ class QuestManagerImpl {
     if (allDone) {
       state.status = 'completed';
       state.completedAt = Date.now();
-      this.events.emit('quest:completed', { id: questId, completedAt: state.completedAt });
+      // rewardItems travels on the event itself (see module docstring's REWARD ITEMS note) —
+      // this module never calls InventoryManager.addItem itself, it only hands the list off.
+      this.events.emit('quest:completed', {
+        id: questId, completedAt: state.completedAt, rewardItems: definition.rewardItems ?? [],
+      });
 
       // Keep the HUD showing SOMETHING (see `setTrackedQuest`'s docstring): if the quest that
       // just finished was the tracked one, hand tracking to another active quest if any remain.
@@ -486,7 +526,9 @@ class QuestManagerImpl {
   }
 
   /**
-   * Clears ALL quest progress and the collected-item inventory (definitions stay registered).
+   * Clears ALL quest progress (definitions stay registered) AND, since items are now tracked by
+   * `InventoryManager` (see module docstring's ITEM TRACKING note), the player's whole inventory
+   * too — mirrors this method's previous scope/shape exactly, just delegating the item half.
    * Mirrors `LoopManager.reset()`'s scope/shape for consistency; unlike `LoopManager`, nothing
    * in this engine calls this automatically — it's here for calling content to use deliberately
    * (e.g. a "new game" action), since quest progress/history is meant to persist across ordinary
@@ -495,7 +537,7 @@ class QuestManagerImpl {
    */
   resetAll() {
     this._state.clear();
-    this._inventory.clear();
+    InventoryManager.resetAll();
     this._trackedQuestId = null;
     this._touch();
   }
@@ -512,9 +554,10 @@ class QuestManagerImpl {
   }
 
   /**
-   * Persists active/completed quest state and the collected-item inventory to localStorage.
-   * Definitions are NOT persisted (they are re-registered via `loadDefinitions` every boot, same
-   * as content elsewhere in the engine is re-declared rather than saved).
+   * Persists active/completed quest state to localStorage. Item state is no longer this module's
+   * to persist — `InventoryManager` saves itself under its own key (see module docstring's ITEM
+   * TRACKING note). Definitions are NOT persisted (they are re-registered via `loadDefinitions`
+   * every boot, same as content elsewhere in the engine is re-declared rather than saved).
    * @returns {void}
    */
   save() {
@@ -529,7 +572,6 @@ class QuestManagerImpl {
     ]);
     const payload = {
       state: serializedState,
-      inventory: [...this._inventory.entries()],
       trackedQuestId: this._trackedQuestId,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -556,7 +598,6 @@ class QuestManagerImpl {
     }
 
     this._state.clear();
-    this._inventory.clear();
 
     for (const [id, state] of payload.state ?? []) {
       if (!this._definitions.has(id)) {
@@ -570,10 +611,6 @@ class QuestManagerImpl {
         objectives: new Map(state.objectives),
       });
     }
-    for (const [itemId, count] of payload.inventory ?? []) {
-      this._inventory.set(itemId, count);
-    }
-
     const trackedId = payload.trackedQuestId ?? null;
     this._trackedQuestId = trackedId !== null && this._state.get(trackedId)?.status === 'active' ? trackedId : null;
   }

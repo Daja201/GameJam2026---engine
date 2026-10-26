@@ -7,7 +7,10 @@
     "E": "interact",
     "Q": "toggle-mode",
     "L": "open-quest-log",
-    "ESC": "cancel"
+    "M": "toggle-map",
+    "I": "open-inventory",
+    "BACKSPACE": "cancel",
+    "R": "debug-reset-loop"
   },
   "text-entry": {
     "ENTER": "text-enter",
@@ -18,13 +21,21 @@
     "UP": "menu-up",
     "DOWN": "menu-down",
     "ENTER": "confirm",
-    "ESC": "cancel"
+    "BACKSPACE": "cancel"
   },
   "quest-log": {
     "UP": "menu-up",
     "DOWN": "menu-down",
     "ENTER": "confirm",
     "L": "cancel",
-    "ESC": "cancel"
+    "BACKSPACE": "cancel"
+  },
+  "inventory": {
+    "UP": "menu-up",
+    "DOWN": "menu-down",
+    "ENTER": "confirm",
+    "X": "drop-item",
+    "I": "cancel",
+    "BACKSPACE": "cancel"
   }
 }

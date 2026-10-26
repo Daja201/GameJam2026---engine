@@ -33,6 +33,6 @@
       "fallback": "idle"
     }
   },
-  "hitbox": { "width": 12, "height": 8, "offset_y": 10 },
+  "hitbox": { "width": 12, "height": 8, "margin_bottom": { "32": 1, "48": 8 } },
   "scale": 0.5
 }

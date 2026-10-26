@@ -26,12 +26,29 @@ import { buildListElement } from './elements/ListElement.js';
 
 const ROW_HEIGHT = 24;
 const GRID_COLUMNS = 3;
+// FIX (centered + scrollable settings): 'vertical-list' content is now centered horizontally and
+// wrapped in a scrollable, masked viewport with a themed right-edge scrollbar (like a website's),
+// instead of a flush left-aligned, never-scrolling column. CONTENT_PADDING matches the nineslice's
+// own border inset (16, see the `scene.add.nineslice(...)` call below) so content never sits under
+// the panel's drawn frame; SCROLLBAR_WIDTH/SCROLLBAR_GAP reserve a thin strip along the right edge
+// for the track+thumb, subtracted from the width content is centered within so centering accounts
+// for the scrollbar instead of visually drifting left of it.
+const CONTENT_PADDING = 16;
+const SCROLLBAR_WIDTH = 6;
+const SCROLLBAR_GAP = 6;
+const SCROLLBAR_COLOR = 0x35e0a8; // this project's one recurring accent color (HUD bar/border, map ring)
+const SCROLLBAR_TRACK_COLOR = 0x1a1a2a;
+const WHEEL_SCROLL_SPEED = 0.4;
 // FIX (auto-size): used only when manifest.size is NOT given — the minimum a panel can shrink
 // to, and the breathing room left around measured content so elements don't sit flush against
 // the panel's edge/nineslice border.
 const MIN_PANEL_WIDTH = 64;
 const MIN_PANEL_HEIGHT = 48;
 const AUTO_SIZE_PADDING = 12;
+// FIX (fill-size): used only when manifest.size === 'fill' — how much of INTERNAL_WIDTH/HEIGHT
+// the panel leaves as a margin on each side, so a "full screen" window still shows a sliver of
+// whatever's behind it (world/backdrop) instead of covering literally every pixel.
+const FILL_MARGIN = 8;
 
 /** Element type name -> builder function. */
 const ELEMENT_BUILDERS = {
@@ -164,17 +181,29 @@ export const WindowFactory = {
     }
     layoutElements(elementContainers, manifest.elements, manifest.layout);
 
-    const autoSizing = !manifest.size;
-    const autoSize = autoSizing ? computeAutoSize(elementContainers, elementSizes) : null;
-    const panelWidth = manifest.size?.width ?? autoSize.width;
-    const panelHeight = manifest.size?.height ?? autoSize.height;
-    if (autoSizing) {
+    // FIX (fill-size): `manifest.size` has three forms now —
+    //   - { width, height } (unchanged): exact size, as before.
+    //   - omitted: auto-fit tightly to content (previous FIX), for small HUD-style windows.
+    //   - the literal string 'fill': take up (almost) the whole INTERNAL_WIDTH/HEIGHT canvas,
+    //     regardless of how little content there is — for windows that should visually dominate
+    //     the screen (e.g. a quest log or settings menu meant to feel full-screen).
+    const sizingMode = manifest.size === 'fill' ? 'fill' : manifest.size ? 'explicit' : 'auto';
+    const autoSize = sizingMode === 'auto' ? computeAutoSize(elementContainers, elementSizes) : null;
+    const fillSize = sizingMode === 'fill'
+      ? { width: INTERNAL_WIDTH - FILL_MARGIN * 2, height: INTERNAL_HEIGHT - FILL_MARGIN * 2 }
+      : null;
+    const panelWidth = sizingMode === 'explicit' ? manifest.size.width : sizingMode === 'fill' ? fillSize.width : autoSize.width;
+    const panelHeight = sizingMode === 'explicit' ? manifest.size.height : sizingMode === 'fill' ? fillSize.height : autoSize.height;
+    if (sizingMode === 'auto') {
       // Shift every element inward so content doesn't sit flush against the auto-sized panel's
       // edge — the same padding computeAutoSize() budgeted for when it measured maxRight/maxBottom.
       elementContainers.forEach((container) => {
         container.setPosition(container.x + AUTO_SIZE_PADDING, container.y + AUTO_SIZE_PADDING);
       });
     }
+    // 'fill' intentionally does NOT auto-pad/shift elements: a fill window's content is expected
+    // to be laid out (via 'free' x/y, typically) against the panel's own known full-canvas size,
+    // the same way the existing 480x270 explicit-size manifests already position their elements.
     const { x, y } = resolveAnchorPosition(manifest.anchor, panelWidth, panelHeight);
 
     const rootContainer = scene.add.container(x, y);
@@ -192,12 +221,24 @@ export const WindowFactory = {
     // That keeps it visually pinned to the screen exactly like scrollFactor(0) did, but hit-testing
     // now works against the container's *real* position, which always matches what's drawn.
     const basePosition = { x, y };
+    const cam = scene.cameras.main;
     const repositionRoot = () => {
-      const cam = scene.cameras.main;
       rootContainer.setPosition(basePosition.x + cam.scrollX, basePosition.y + cam.scrollY);
     };
     repositionRoot();
-    scene.events.on('update', repositionRoot);
+    // FIX (shaking GUI): this used to run on the scene's 'update' event. Scene 'update' fires
+    // during the *update* step of the frame, but the camera's follow logic (which changes
+    // scrollX/scrollY) only runs afterwards, during the *render* step (Camera.preRender). So a
+    // scene-'update' listener always read last frame's scroll value, one step behind the scroll
+    // the renderer was about to draw with. Visually that 1-frame lag shows up as the whole window
+    // jittering/shaking in the opposite direction of player movement, worse the faster you move.
+    // Camera's 'followupdate' event fires synchronously inside preRender, right after scrollX/Y
+    // are recalculated for this frame and before anything is drawn, so reading cam.scrollX/Y here
+    // always matches what's about to be rendered — no lag, no shake. It only fires while the
+    // camera has an active follow target, which matches every screen that showed the shake; when
+    // nothing is being followed the scroll never changes anyway, so the initial repositionRoot()
+    // call above already leaves the window correctly placed.
+    cam.on('followupdate', repositionRoot);
 
     /** @type {Phaser.GameObjects.Rectangle|null} */
     let overlay = null;
@@ -207,14 +248,14 @@ export const WindowFactory = {
       overlay.setOrigin(0, 0);
       overlay.setDepth(DEPTH.UI_MODAL_OVERLAY);
       overlay.setInteractive(); // no handler: this alone swallows clicks to anything below it
-      // Same fix as rootContainer: keep scrollFactor default and manually track the camera so the
-      // overlay's actual (hit-tested) position always matches its visible, screen-fixed position.
+      // Same fix as rootContainer: track the camera's 'followupdate' event (fired at the right
+      // point in the frame, see above) instead of scene 'update', so the overlay's actual
+      // (hit-tested) position never lags a frame behind its visible, screen-fixed position.
       repositionOverlay = () => {
-        const cam = scene.cameras.main;
         overlay.setPosition(cam.scrollX, cam.scrollY);
       };
       repositionOverlay();
-      scene.events.on('update', repositionOverlay);
+      cam.on('followupdate', repositionOverlay);
     }
 
     const panel = scene.add.nineslice(
@@ -226,7 +267,103 @@ export const WindowFactory = {
 
     // Elements were built, measured, and positioned above (before panel size was even known);
     // now that rootContainer exists, parent them into it.
-    elementContainers.forEach((container) => rootContainer.add(container));
+    //
+    // FIX (centered + scrollable settings): 'vertical-list' is now a special case — every other
+    // layout ('grid', 'free', and auto/fill-sized panels generally) parents elements straight into
+    // rootContainer exactly as before. 'vertical-list' instead re-centers each row horizontally
+    // and nests the whole stack inside its own `scrollContainer`, clipped to the panel's content
+    // area with a geometry mask whenever the stacked rows are taller than that area, with a
+    // draggable/wheel-scrollable themed scrollbar along the right edge (see constants above).
+    let scrollCleanup = null;
+    if (manifest.layout === 'vertical-list') {
+      const contentAreaWidth = panelWidth - CONTENT_PADDING * 2 - SCROLLBAR_WIDTH - SCROLLBAR_GAP;
+      const contentAreaHeight = panelHeight - CONTENT_PADDING * 2;
+      const totalContentHeight = elementContainers.length * ROW_HEIGHT;
+
+      // Center each row horizontally within the (scrollbar-aware) content width.
+      elementContainers.forEach((container, i) => {
+        const rowWidth = elementSizes[i].width;
+        container.setPosition(Math.max(0, (contentAreaWidth - rowWidth) / 2), i * ROW_HEIGHT);
+      });
+
+      const scrollContainer = scene.add.container(CONTENT_PADDING, CONTENT_PADDING);
+      elementContainers.forEach((container) => scrollContainer.add(container));
+      rootContainer.add(scrollContainer);
+
+      const maxScroll = Math.max(0, totalContentHeight - contentAreaHeight);
+      if (maxScroll > 0) {
+        // Clips `scrollContainer` to the panel's content rect. The mask shape is a standalone
+        // GameObject (not nested inside rootContainer), so — same reasoning as rootContainer's
+        // own `repositionRoot`/the modal `overlay` above — it must be repositioned every
+        // `followupdate` to stay aligned with rootContainer's actual (camera-scroll-compensated)
+        // position, or it would silently drift out of sync as soon as the world camera moves.
+        const maskShape = scene.add.graphics();
+        maskShape.setVisible(false);
+        const updateMaskShape = () => {
+          maskShape.clear();
+          maskShape.fillStyle(0xffffff);
+          maskShape.fillRect(
+            rootContainer.x + CONTENT_PADDING,
+            rootContainer.y + CONTENT_PADDING,
+            contentAreaWidth,
+            contentAreaHeight,
+          );
+        };
+        updateMaskShape();
+        scrollContainer.setMask(maskShape.createGeometryMask());
+        cam.on('followupdate', updateMaskShape);
+
+        // Scrollbar track + thumb, themed to match the rest of this project's teal/cyan accent
+        // color (HudPanel's bar fill, MapOverlay's border) rather than a generic gray.
+        const trackX = panelWidth - CONTENT_PADDING - SCROLLBAR_WIDTH;
+        const track = scene.add.rectangle(trackX, CONTENT_PADDING, SCROLLBAR_WIDTH, contentAreaHeight, SCROLLBAR_TRACK_COLOR)
+          .setOrigin(0, 0);
+        track.setStrokeStyle(1, SCROLLBAR_COLOR, 0.35);
+        const thumbHeight = Math.max(16, contentAreaHeight * (contentAreaHeight / totalContentHeight));
+        const thumbTravel = contentAreaHeight - thumbHeight;
+        const thumb = scene.add.rectangle(trackX, CONTENT_PADDING, SCROLLBAR_WIDTH, thumbHeight, SCROLLBAR_COLOR)
+          .setOrigin(0, 0);
+        rootContainer.add([track, thumb]);
+
+        let scrollY = 0;
+        const applyScroll = () => {
+          scrollContainer.y = CONTENT_PADDING - scrollY;
+          thumb.y = CONTENT_PADDING + thumbTravel * (scrollY / maxScroll);
+          updateMaskShape();
+        };
+        const setScroll = (value) => {
+          scrollY = Math.max(0, Math.min(maxScroll, value));
+          applyScroll();
+        };
+
+        // Mouse wheel, only while the pointer is over this panel (pointer.worldX/Y already
+        // include the camera's scroll, same coordinate space rootContainer's own position is
+        // kept in via repositionRoot above, so comparing the two directly is valid).
+        const onWheel = (pointer, _over, _dx, deltaY) => {
+          const withinX = pointer.worldX >= rootContainer.x && pointer.worldX <= rootContainer.x + panelWidth;
+          const withinY = pointer.worldY >= rootContainer.y && pointer.worldY <= rootContainer.y + panelHeight;
+          if (withinX && withinY) setScroll(scrollY + deltaY * WHEEL_SCROLL_SPEED);
+        };
+        scene.input.on('wheel', onWheel);
+
+        // Draggable thumb, same "website scrollbar" affordance as the wheel.
+        thumb.setInteractive({ useHandCursor: true });
+        scene.input.setDraggable(thumb);
+        const onThumbDrag = (pointer, dragX, dragY) => {
+          const clampedY = Math.max(0, Math.min(thumbTravel, dragY - CONTENT_PADDING));
+          setScroll(thumbTravel > 0 ? (clampedY / thumbTravel) * maxScroll : 0);
+        };
+        thumb.on('drag', onThumbDrag);
+
+        scrollCleanup = () => {
+          cam.off('followupdate', updateMaskShape);
+          scene.input.off('wheel', onWheel);
+          maskShape.destroy();
+        };
+      }
+    } else {
+      elementContainers.forEach((container) => rootContainer.add(container));
+    }
 
     const handle = {
       container: rootContainer,
@@ -235,12 +372,13 @@ export const WindowFactory = {
           if (typeof container.unsubscribe === 'function') container.unsubscribe();
         });
         // FIX: must remove the per-frame camera-tracking listeners before destroying, or the
-        // scene keeps calling repositionRoot/repositionOverlay on destroyed GameObjects every
+        // camera keeps calling repositionRoot/repositionOverlay on destroyed GameObjects every
         // frame (Phaser logs no error for this, it just silently no-ops/throws inside a
         // try-less callback) — a slow leak and a source of "ghost" console errors after closing
         // several windows in one play session.
-        scene.events.off('update', repositionRoot);
-        if (repositionOverlay) scene.events.off('update', repositionOverlay);
+        cam.off('followupdate', repositionRoot);
+        if (repositionOverlay) cam.off('followupdate', repositionOverlay);
+        scrollCleanup?.();
         rootContainer.destroy();
         if (overlay) overlay.destroy();
       },

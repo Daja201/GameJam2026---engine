@@ -1,0 +1,10 @@
+{
+  "id": "inventory",
+  "display_name": "Inventory",
+  "controller": "InventoryScreenController",
+  "input_profile": "inventory",
+  "background": null,
+  "ui_windows": ["inventory_panel"],
+  "transition_in": "instant",
+  "transition_out": "instant"
+}
