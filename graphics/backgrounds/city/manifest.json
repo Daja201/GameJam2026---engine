@@ -10,6 +10,10 @@
       {
         "name": "props",
         "image": "../../tileset/Cyberpunk_City_Props.png"
+      },
+      {
+        "name": "assets",
+        "image": "../../tileset/Cyberpunk_City_Doors_Windows_Signs.png"
       }
     ],
     "y_sorted_layers": ["city overlay"],

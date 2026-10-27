@@ -3,7 +3,7 @@ import { Actor } from '../../engine/sprites/Actor.js';
 import { Companion } from '../companions/Companion.js';
 import { InteractiveObject } from '../../engine/world/InteractiveObject.js';
 import { isWithinRadius } from '../../engine/world/ProximityDetector.js';
-import { INTERNAL_HEIGHT } from '../../engine/display/constants.js';
+import { INTERNAL_HEIGHT, INTERNAL_WIDTH } from '../../engine/display/constants.js';
 import { DEPTH } from '../../engine/display/DepthLayers.js';
 import { LoopManager } from '../../engine/loop/LoopManager.js';
 import { FxManager } from '../../engine/loop/FxManager.js';
@@ -41,24 +41,6 @@ const WORLD_Y_SORT_DEPTH_RANGE = DEPTH.WORLD_FOREGROUND - DEPTH.WORLD_ENTITIES -
  */
 const WORLD_PC_INTERACT_ID = 'world_pc';
 const SCRAP_ITEM_ID = 'scrap_metal';
-
-// FIX (city map): the `world` screen's background is `graphics/backgrounds/city` (a Tiled map,
-// see that folder's city.json/manifest.json), so spawning at INTERNAL_WIDTH/2 x INTERNAL_HEIGHT/2
-// (the old single-room static image's center) no longer makes sense — that point has nothing to
-// do with this map's own size. SPAWN_X/SPAWN_Y below is this map's actual pixel-center (currently
-// a 30x30 tile map at 32px/tile = 960x960px, so 480,480) rather than a value baked in from a
-// previous, differently-sized map. IMPORTANT: if `city.json` is ever resized again in Tiled, this
-// must be updated to match (half of the new width/height in pixels) — a stale value here spawns
-// the player, cat, PC prop and scrap pickups outside `scene.physics.world.setBounds(...)` (set
-// from `getMapSize()` a few lines below in `onEnter`), which looks like "the character can't
-// move" (it's actually just stuck off-screen, past where the camera's bounds let it scroll to).
-const SPAWN_X = 480;
-const SPAWN_Y = 480;
-
-const SCRAP_SPAWN_POINTS = [
-  { x: SPAWN_X - 60, y: SPAWN_Y - 40 },
-  { x: SPAWN_X + 90, y: SPAWN_Y + 50 },
-];
 
 /** Mode names. In 'normal' mode E interacts with the world; in 'fight' mode E punches. */
 const MODE_NORMAL = 'normal';
@@ -124,9 +106,6 @@ export class WorldScreenController extends ScreenController {
     // underneath (see main.js's 'menu-start'/'pause-open-map' action registrations). Cleared in onExit.
     this.engine.worldController = this;
 
-    this.actor = new Actor(scene, 'main_char', SPAWN_X, SPAWN_Y);
-    scene.cameras.main.startFollow(this.actor.sprite, true);
-
     // FIX (city map): world/camera bounds and building collision. Previously neither was set at
     // all (see prompts/12-INSTRUCTIONS_GAME.md: "No collision tilemap yet — player currently
     // walks through everything") because the old background was a single borderless static room
@@ -134,11 +113,19 @@ export class WorldScreenController extends ScreenController {
     // are no-ops (return null) for non-tilemap backgrounds, so this stays harmless if a future
     // screen swaps back to a static/parallax background.
     const mapSize = this.background?.getMapSize?.();
+    const tileSize = this.background?.getTileSize?.();
     this.mapSize = mapSize ?? null;
+    const spawnX = tileSize ? 25 * tileSize.width : 25;
+    const spawnY = tileSize ? 25 * tileSize.height : 25;
     if (mapSize) {
       scene.physics.world.setBounds(0, 0, mapSize.width, mapSize.height);
       scene.cameras.main.setBounds(0, 0, mapSize.width, mapSize.height);
     }
+
+    this.actor = new Actor(scene, 'main_char', spawnX, spawnY);
+    this.actor.sprite.setCollideWorldBounds(Boolean(mapSize));
+    scene.cameras.main.startFollow(this.actor.sprite, true);
+
     const collisionLayer = this.background?.getCollisionLayer?.();
     const partialHitboxGroup = this.background?.getPartialHitboxGroup?.();
     if (collisionLayer) {
@@ -189,11 +176,12 @@ export class WorldScreenController extends ScreenController {
       collisionLayer,
       obstacleGroup: partialHitboxGroup,
     });
+    this.cat.sprite.setCollideWorldBounds(Boolean(mapSize));
     if (collisionLayer) scene.physics.add.collider(this.cat.sprite, collisionLayer);
     if (partialHitboxGroup) scene.physics.add.collider(this.cat.sprite, partialHitboxGroup);
-    this.louisa = new Actor(scene, 'louisa', SPAWN_X + 120, SPAWN_Y);
-    this.soldier = new Actor(scene, 'soldier', SPAWN_X + 200, SPAWN_Y + 40);
-    this.teacher = new Actor(scene, 'teach', SPAWN_X - 120, SPAWN_Y + 40);
+    this.louisa = new Actor(scene, 'louisa', spawnX + 120, spawnY);
+    this.soldier = new Actor(scene, 'soldier', spawnX + 200, spawnY + 40);
+    this.teacher = new Actor(scene, 'teach', spawnX - 120, spawnY + 40);
     // NOTE: blocking the player from walking THROUGH the cat is handled by `_keepCatOffPlayer`
     // (called from onUpdate, after both actor/cat `update()`), NOT by `physics.add.collider`.
     // An Arcade collider was tried here first and caused the camera to visibly shake while
@@ -205,8 +193,8 @@ export class WorldScreenController extends ScreenController {
     // the camera follows. `_keepCatOffPlayer` resolves the same overlap but only ever moves the
     // cat, so the player (and the camera) stay untouched by it.
 
-    const pcX = SPAWN_X + 40;
-    const pcY = SPAWN_Y;
+    const pcX = spawnX + 40;
+    const pcY = spawnY;
     // Visual for the trigger zone — InteractiveObject itself only builds the invisible zone.
     this.pcVisual = scene.add.rectangle(pcX, pcY, 14, 14, 0x334455).setDepth(DEPTH.WORLD_ENTITIES);
     this.pcVisual.setStrokeStyle(1, 0x8aa8ff);
@@ -230,13 +218,19 @@ export class WorldScreenController extends ScreenController {
     // zone solid here doesn't change when the prompt shows or when interact fires.
     scene.physics.add.collider(this.actor.sprite, this.pc.zone);
 
-    // Scrap-metal pickups (this room's "getting some item" quest content — see SCRAP_SPAWN_POINTS'
-    // docstring above). Only as many are spawned as are still needed: if a previous session
+    // Scrap-metal pickups (this room's "getting some item" quest content). Only as many are
+    // spawned as are still needed: if a previous session
     // already collected some (QuestManager persists collected-item counts across reloads — see
     // QuestManager.save()/load()), re-entering the World shouldn't let the player "re-collect"
     // past what the quest actually still requires.
     const alreadyCollected = QuestManager.getItemCount(SCRAP_ITEM_ID);
-    this.scrapPickups = SCRAP_SPAWN_POINTS.slice(alreadyCollected).map((point) => this._createScrapPickup(point.x, point.y));
+    const scrapSpawnPoints = [
+      { x: spawnX - 60, y: spawnY - 40 },
+      { x: spawnX + 90, y: spawnY + 50 },
+    ];
+    this.scrapPickups = scrapSpawnPoints
+      .slice(alreadyCollected)
+      .map((point) => this._createScrapPickup(point.x, point.y));
 
     this.droppedItems = [];
     this._onInventoryItemDropped = ({ itemId, amount }) => this._createDroppedItem(itemId, amount);

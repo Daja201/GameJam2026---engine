@@ -9,17 +9,8 @@ const HOLE_RADIUS = 23;
 const BORDER_RADIUS = HOLE_RADIUS + 1;
 const MINIMAP_SIZE = HOLE_RADIUS * 2 + 4;
 const MINIMAP_MARGIN = 4;
-// FIX (minimap stuck/not following): this used to be a flat hardcoded zoom (0.03), tuned for one
-// specific old 3904x2304 city map — on that map the minimap's ~50px viewport showed well over
-// half the map width, which both read fine AND left plenty of room for the camera to actually pan
-// as the player moved. On a SMALLER map (e.g. the current 960x960 one), that same fixed zoom made
-// the viewport's implied world-window (MINIMAP_SIZE / zoom ≈ 1667px) bigger than the entire map,
-// so `minimapCam.setBounds(...)` had nowhere left to let the camera scroll to — it just sat
-// permanently clamped to the map's center regardless of player position, which looked like "the
-// minimap doesn't move." Deriving the zoom from the actual map size instead (below) keeps the
-// minimap always showing a fixed FRACTION of the map — so it both reads reasonably at any map
-// size AND always has real room to pan, however big or small the current background turns out to
-// be, without needing a manual retune like this every time the map changes.
+// The minimap zoom is derived from the actual map size so it displays a consistent map fraction
+// and still follows the player when maps are resized.
 const MINIMAP_VIEW_FRACTION = 0.35; // fraction of the smaller map dimension visible at once
 
 /**

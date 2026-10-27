@@ -22,11 +22,11 @@
             "scaleInEditor": 1
         },
         "graphics/backgrounds/city/city.json": {
-            "scale": 0.609,
+            "scale": 0.8163,
             "selectedLayer": 0,
             "viewCenter": {
-                "x": 11884.236453201971,
-                "y": 362.06896551724134
+                "x": 251.7456817346564,
+                "y": 363.22430478990566
             }
         },
         "graphics/backgrounds/city/city.json#CityTileset": {
@@ -34,6 +34,9 @@
             "scaleInEditor": 1
         },
         "graphics/backgrounds/city/city.json#city": {
+            "scaleInDock": 1
+        },
+        "graphics/backgrounds/city/city.json#props": {
             "scaleInDock": 1
         },
         "graphics/backgrounds/city/props.tsx": {
@@ -59,9 +62,9 @@
     "project": "Gayjam26.tiled-project",
     "property.type": "bool",
     "recentFiles": [
+        "graphics/backgrounds/city/city.json",
         "graphics/tileset/city.tsx",
         "graphics/backgrounds/city/props.tsx",
-        "graphics/backgrounds/city/city.json",
         "graphics/backgrounds/city/CityTileset.tsx",
         "CityTiles.tsx"
     ],

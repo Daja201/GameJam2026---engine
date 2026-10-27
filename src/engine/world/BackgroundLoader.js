@@ -151,6 +151,7 @@ function createYSortedTileSprites(scene, tilemap, tileLayer, backgroundId) {
  *   `cameras.main.setBounds(...)` to the ACTUAL map size for any tilemap background, instead of
  *   every screen controller having to know/hardcode a specific map's dimensions. Null for
  *   non-tilemap backgrounds (parallax/static have no inherent "world size" to bound movement to).
+ * @property {() => {width:number, height:number}|null} getTileSize - tile dimensions for tilemap backgrounds
  */
 
 /**
@@ -492,6 +493,10 @@ export const BackgroundLoader = {
       getMapSize() {
         if (manifest.type !== 'tilemap' || !tilemap) return null;
         return { width: tilemap.widthInPixels, height: tilemap.heightInPixels };
+      },
+      getTileSize() {
+        if (manifest.type !== 'tilemap' || !tilemap) return null;
+        return { width: tilemap.tileWidth, height: tilemap.tileHeight };
       },
       setAmbientTint(hexColor) {
         const color = Phaser.Display.Color.HexStringToColor(hexColor).color;
