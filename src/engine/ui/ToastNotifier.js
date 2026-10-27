@@ -1,4 +1,4 @@
-import { INTERNAL_WIDTH } from '../display/constants.js';
+import { INTERNAL_HEIGHT, INTERNAL_WIDTH } from '../display/constants.js';
 import { DEPTH } from '../display/DepthLayers.js';
 
 /**
@@ -34,7 +34,12 @@ const DEFAULT_ACCENT = 0x8aa8ff;
 
 /**
  * @param {Phaser.Scene} scene
- * @returns {{ show(message: string, opts?: { accentColor?: number }): void, root: Phaser.GameObjects.Container, destroy(): void }}
+ * @returns {{
+ *   show(message: string, opts?: { accentColor?: number }): void,
+ *   setPinned(message: string|null, opts?: { accentColor?: number }): void,
+ *   root: Phaser.GameObjects.Container,
+ *   destroy(): void,
+ * }}
  */
 export function createToastNotifier(scene) {
   /** @type {{ container: Phaser.GameObjects.Container }[]} active toasts, oldest first */
@@ -46,6 +51,23 @@ export function createToastNotifier(scene) {
   // Phaser's camera.ignore() on a Container also skips rendering its current children.
   const root = scene.add.container(0, 0);
   root.setDepth(DEPTH.UI_HUD + 1);
+
+  const pinnedBg = scene.add.rectangle(0, 0, TOAST_WIDTH, TOAST_HEIGHT, 0x1a1a2a, 0.92).setOrigin(0, 0);
+  const pinnedAccent = scene.add.rectangle(0, 0, ACCENT_BAR_WIDTH, TOAST_HEIGHT, DEFAULT_ACCENT).setOrigin(0, 0);
+  const pinnedText = scene.add.text(8, TOAST_HEIGHT / 2, '', {
+    fontFamily: 'monospace',
+    fontSize: '8px',
+    color: '#ffffff',
+    wordWrap: { width: TOAST_WIDTH - 14 },
+  }).setOrigin(0, 0.5);
+  const pinned = scene.add.container(
+    MARGIN,
+    INTERNAL_HEIGHT - TOAST_HEIGHT - MARGIN,
+    [pinnedBg, pinnedAccent, pinnedText],
+  );
+  pinned.setScrollFactor(0);
+  pinned.setVisible(false);
+  root.add(pinned);
 
   /** Re-tweens every active toast to its correct stacked y position. @returns {void} */
   function reflow() {
@@ -113,6 +135,20 @@ export function createToastNotifier(scene) {
 
   return {
     show,
+    /**
+     * Keeps a notification-style card in a fixed position until replaced or cleared.
+     * @param {string|null} message
+     * @param {{ accentColor?: number }} [opts]
+     * @returns {void}
+     */
+    setPinned(message, opts = {}) {
+      pinned.setVisible(message !== null);
+      if (message === null) return;
+      const accentColor = opts.accentColor ?? DEFAULT_ACCENT;
+      pinnedBg.setStrokeStyle(1, accentColor);
+      pinnedAccent.setFillStyle(accentColor);
+      pinnedText.setText(message);
+    },
     /** Parent of every toast shown by this notifier — see the constant-time note above. */
     root,
     /** Immediately removes every active toast (no fade). @returns {void} */

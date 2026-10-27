@@ -248,32 +248,9 @@ export class WorldScreenController extends ScreenController {
     // (the abstract `interact` action only fires on press — see class-level INPUT DESIGN NOTE).
     this.attackKey = scene.input.keyboard.addKey('E');
 
-    // FIX (quest box): the mode/quest/hint labels below used to each draw their own small
-    // individual `backgroundColor` patch — three disconnected black rectangles stacked on top of
-    // each other, not a real box, and (before the minimap-ring fix above) also sitting directly
-    // underneath HudPanel's ring graphic, which is the "graphics thrown over text" overlap that
-    // fix removed. This is their actual shared background now: one cohesive panel, drawn once,
-    // sized generously (wider than the longest tracked-quest line, QUEST_HUD_MAX_CHARS=64 chars
-    // at 8px monospace) rather than three cramped per-line patches — "make it bigger" per the
-    // request this fixes. Plain Graphics, not the `panel.png` 9-slice windows (those currently
-    // carry a baked-in magenta guide-line artifact — see WindowFactory/ScrollableText history —
-    // and fixing that asset is a separate, not-yet-requested task).
-    const questBoxWidth = 330;
-    const questBoxHeight = 50;
-    this.questBox = scene.add.graphics();
-    this.questBox.fillStyle(0x05070c, 0.78);
-    this.questBox.fillRect(0, 0, questBoxWidth, questBoxHeight);
-    this.questBox.lineStyle(1, 0x35e0a8, 0.9);
-    this.questBox.strokeRect(0, 0, questBoxWidth, questBoxHeight);
-    this.questBox.setPosition(2, 2);
-    this.questBox.setScrollFactor(0);
-    this.questBox.setDepth(DEPTH.UI_HUD);
-
-    const QUEST_BOX_PAD = 8;
-
     // Mode: NORMAL (E interacts) <-> FIGHT (E punches), toggled with Q.
     this.mode = MODE_NORMAL;
-    this.modeLabel = scene.add.text(2 + QUEST_BOX_PAD, 2 + 22, '', {
+    this.modeLabel = scene.add.text(8, 8, '', {
       fontFamily: 'monospace',
       fontSize: '10px',
       color: '#ffffff',
@@ -293,26 +270,14 @@ export class WorldScreenController extends ScreenController {
     // button left in this column and is now gone too, so the whole column is key-hints only.
     this.hudPanel = createHudPanel(scene);
 
-    // Tracked-quest HUD line, top-left corner (ABOVE the mode label, see class docstring) —
-    // always shows whichever quest QuestManager considers "tracked" (auto-picked, or chosen by
-    // the player from the Quest Log screen's Active tab). [L] opens the Quest Log (see onInput).
-    this.questHudLabel = scene.add.text(2 + QUEST_BOX_PAD, 2 + 8, '', {
-      fontFamily: 'monospace',
-      fontSize: '8px',
-      color: '#aaffaa',
-      wordWrap: { width: questBoxWidth - QUEST_BOX_PAD * 2 },
-    });
-    this.questHudLabel.setScrollFactor(0);
-    this.questHudLabel.setDepth(DEPTH.UI_HUD);
-    this._refreshQuestHud();
-    this._onQuestsUpdated = () => this._refreshQuestHud();
-    QuestManager.events.on('quest:updated', this._onQuestsUpdated);
-
     // Quest notifications: small top-right toasts for "started" / "progress" / "complete" — see
     // ToastNotifier.js's module docstring for the design (familiar from most RPGs/quest-driven
     // games). This controller owns the mapping from a quest event to a message + accent color;
     // ToastNotifier itself has no idea what a "quest" is.
     this.toasts = createToastNotifier(scene);
+    this._onQuestsUpdated = () => this._refreshQuestHud();
+    QuestManager.events.on('quest:updated', this._onQuestsUpdated);
+    this._refreshQuestHud();
     this._onQuestAssigned = ({ id }) => {
       const quest = QuestManager.getQuest(id);
       if (quest) this.toasts.show(`Quest Started: ${quest.title}`, { accentColor: TOAST_ACCENT_STARTED });
@@ -357,9 +322,7 @@ export class WorldScreenController extends ScreenController {
         mapSize: this.mapSize,
         ignore: [
           ...this.hudPanel.getDisplayObjects(),
-          this.questBox,
           this.modeLabel,
-          this.questHudLabel,
           this.toasts.root,
         ],
       })
@@ -744,31 +707,28 @@ export class WorldScreenController extends ScreenController {
     this.droppedItems.push(entry);
   }
 
-  /** Longest the tracked-quest HUD line is allowed to get before truncating with "…". */
+  /** Longest the pinned tracked-quest notification is allowed to get before truncating. */
   static QUEST_HUD_MAX_CHARS = 64;
 
   /**
-   * Updates the top-left tracked-quest HUD line from `QuestManager.getTrackedQuest()`. Subscribed
-   * to `QuestManager`'s `'quest:updated'` event (see onEnter) so it stays correct even while this
-   * screen is the one earning the progress (e.g. picking up scrap updates it immediately, with no
-   * need to poll every frame). `QuestManager` auto-picks a tracked quest whenever one is assigned
-   * and none is tracked yet (see `setTrackedQuest`'s docstring) — the player can pick a different
-   * one to track from the Quest Log screen's Active tab (up/down + confirm there).
+   * Updates the fixed notification-style card from the tracked quest. Subscribed to
+   * `QuestManager`'s `'quest:updated'` event so quest selection and progress changes are reflected
+   * immediately.
    * @private
    * @returns {void}
    */
   _refreshQuestHud() {
     const quest = QuestManager.getTrackedQuest();
     if (!quest) {
-      this.questHudLabel.setText('[L] Quest Log');
+      this.toasts.setPinned(null);
       return;
     }
     const nextObjective = quest.objectives.find((o) => !o.done) ?? quest.objectives[quest.objectives.length - 1];
-    let line = `Quest: ${quest.title} \u2014 ${nextObjective.description} (${nextObjective.current}/${nextObjective.count})`;
+    let line = `${quest.title}: ${nextObjective.description} (${nextObjective.current}/${nextObjective.count})`;
     if (line.length > WorldScreenController.QUEST_HUD_MAX_CHARS) {
       line = `${line.slice(0, WorldScreenController.QUEST_HUD_MAX_CHARS - 1)}\u2026`;
     }
-    this.questHudLabel.setText(line);
+    this.toasts.setPinned(line, { accentColor: TOAST_ACCENT_STARTED });
   }
 
   /**
@@ -883,9 +843,7 @@ export class WorldScreenController extends ScreenController {
       droppedItem.icon.destroy();
       droppedItem.countLabel.destroy();
     }
-    this.questBox.destroy();
     this.modeLabel.destroy();
-    this.questHudLabel.destroy();
     this.hudPanel.destroy();
   }
 }
