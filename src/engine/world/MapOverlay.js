@@ -23,12 +23,27 @@ const RING_SIZE = 72; // native size of minimap_ring.png — kept 1:1, no scalin
 const HOLE_RADIUS = 23; // measured interior radius of the ring's transparent window, minus a ~1px safety margin
 const MINIMAP_SIZE = HOLE_RADIUS * 2 + 4; // square viewport, a few px larger than the masked circle's diameter
 const MINIMAP_MARGIN = 4;
-// Zoomed out far enough that the ~32px-wide player sprite reads as roughly a single pixel on the
-// minimap (32 * MINIMAP_ZOOM ≈ 1px), so the minimap favors showing a large stretch of the map
-// over a legible player icon — on the 3904x2304 city map this shows well over half the map width
-// through the ~50px circular viewport. Adjust if a specific future map's size makes this too
-// zoomed in/out; this value is tuned for the current city map, not derived from it automatically.
-const MINIMAP_ZOOM = 0.03;
+// FIX (minimap stuck/not following): this used to be a flat hardcoded zoom (0.03), tuned for one
+// specific old 3904x2304 city map — on that map the minimap's ~50px viewport showed well over
+// half the map width, which both read fine AND left plenty of room for the camera to actually pan
+// as the player moved. On a SMALLER map (e.g. the current 960x960 one), that same fixed zoom made
+// the viewport's implied world-window (MINIMAP_SIZE / zoom ≈ 1667px) bigger than the entire map,
+// so `minimapCam.setBounds(...)` had nowhere left to let the camera scroll to — it just sat
+// permanently clamped to the map's center regardless of player position, which looked like "the
+// minimap doesn't move." Deriving the zoom from the actual map size instead (below) keeps the
+// minimap always showing a fixed FRACTION of the map — so it both reads reasonably at any map
+// size AND always has real room to pan, however big or small the current background turns out to
+// be, without needing a manual retune like this every time the map changes.
+const MINIMAP_VIEW_FRACTION = 0.35; // fraction of the smaller map dimension visible at once
+
+/**
+ * @param {{width:number, height:number}} mapSize
+ * @returns {number} minimap camera zoom for this map's size (see MINIMAP_VIEW_FRACTION's doc)
+ */
+function computeMinimapZoom(mapSize) {
+  const viewSpan = Math.min(mapSize.width, mapSize.height) * MINIMAP_VIEW_FRACTION;
+  return MINIMAP_SIZE / viewSpan;
+}
 
 /** Full map viewport: (almost) the whole internal canvas, with a border margin. */
 const FULLMAP_MARGIN = 20;
@@ -79,7 +94,7 @@ export function createMapOverlay(scene, opts) {
 
   const minimapCam = scene.cameras.add(miniX, miniY, MINIMAP_SIZE, MINIMAP_SIZE);
   minimapCam.setName('minimap');
-  minimapCam.setZoom(MINIMAP_ZOOM);
+  minimapCam.setZoom(computeMinimapZoom(mapSize));
   minimapCam.setBackgroundColor(BG_COLOR);
   minimapCam.setBounds(0, 0, mapSize.width, mapSize.height);
   minimapCam.startFollow(follow, true);

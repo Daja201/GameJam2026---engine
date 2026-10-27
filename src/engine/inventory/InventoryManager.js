@@ -51,6 +51,11 @@ import { ItemValidationError } from './ItemValidationError.js';
 /** Total number of inventory slots. A jam-scale fixed grid — see module docstring's SLOTS note. */
 const SLOT_COUNT = 16;
 
+/** Size of the cat's own, separate slot set — see `stashInCat`/`retrieveFromCat` below. A few
+ * slots on purpose (per /storycontext.md's "The Cat" section: "a small, dedicated inventory
+ * space"), not a second full grid. */
+const CAT_SLOT_COUNT = 3;
+
 const STORAGE_KEY_PREFIX = 'hackjam:inventory:v';
 const SCHEMA_VERSION = 1;
 const STORAGE_KEY = `${STORAGE_KEY_PREFIX}${SCHEMA_VERSION}`;
@@ -136,6 +141,13 @@ class InventoryManagerImpl {
 
     /** @type {{slotIndex: number, itemId: string|null, count: number}[]} fixed-length slot array */
     this._slots = Array.from({ length: SLOT_COUNT }, (unused, slotIndex) => ({
+      slotIndex, itemId: null, count: 0,
+    }));
+
+    /** The cat's own slot array — see `stashInCat`/`retrieveFromCat` below for why this is kept
+     * entirely separate from `_slots` (never touched by `resetAll()`).
+     * @type {{slotIndex: number, itemId: string|null, count: number}[]} */
+    this._catSlots = Array.from({ length: CAT_SLOT_COUNT }, (unused, slotIndex) => ({
       slotIndex, itemId: null, count: 0,
     }));
   }
@@ -291,6 +303,113 @@ class InventoryManagerImpl {
   }
 
   /**
+   * The cat's own small, dedicated slot set (see /storycontext.md's "The Cat" section) — the
+   * ONLY storage meant to survive whatever "wipe everything" logic eventually gets wired to the
+   * loop-reset event; it is a completely separate array from `_slots` and `resetAll()` never
+   * touches it. Moves `amount` (default 1) of `itemId` OUT of the normal inventory and into the
+   * cat: all-or-nothing (a probe placement is tried first against a scratch copy of the cat's
+   * slots, so a stash can never half-succeed and leave the player's items split awkwardly
+   * between the two).
+   * @param {string} itemId
+   * @param {number} [amount]
+   * @returns {{success: boolean, reason?: 'not-held'|'cat-full'}}
+   */
+  stashInCat(itemId, amount = 1) {
+    const definition = this._definitions.get(itemId);
+    if (!definition) throw new Error(`InventoryManager.stashInCat: unknown item "${itemId}" (load its definition first)`);
+    if (!this.hasItem(itemId, amount)) return { success: false, reason: 'not-held' };
+
+    const probe = this._catSlots.map((slot) => ({ ...slot }));
+    if (this._fillSlots(probe, itemId, amount) > 0) return { success: false, reason: 'cat-full' };
+
+    this.removeItem(itemId, amount);
+    this._fillSlots(this._catSlots, itemId, amount);
+    this.events.emit('inventory:cat-updated');
+    this.save();
+    return { success: true };
+  }
+
+  /**
+   * The inverse of `stashInCat`: moves `amount` (default 1) of `itemId` back out of the cat's
+   * slots and into the normal inventory. If the normal inventory can't take everything (it's
+   * full), whatever didn't fit is put straight back into the cat rather than lost — the slots
+   * just freed by removing `amount` from the cat guarantee there's room for that rollback.
+   * @param {string} itemId
+   * @param {number} [amount]
+   * @returns {{success: boolean, reason?: 'not-in-cat'|'inventory-full'}}
+   */
+  retrieveFromCat(itemId, amount = 1) {
+    const definition = this._definitions.get(itemId);
+    if (!definition) throw new Error(`InventoryManager.retrieveFromCat: unknown item "${itemId}" (load its definition first)`);
+    if (this.getCatItemCount(itemId) < amount) return { success: false, reason: 'not-in-cat' };
+
+    let remaining = amount;
+    for (const slot of this._catSlots) {
+      if (remaining <= 0) break;
+      if (slot.itemId !== itemId) continue;
+      const take = Math.min(slot.count, remaining);
+      slot.count -= take;
+      remaining -= take;
+      if (slot.count === 0) slot.itemId = null;
+    }
+
+    const leftover = this.addItem(itemId, amount);
+    if (leftover > 0) this._fillSlots(this._catSlots, itemId, leftover); // rollback, see doc above
+
+    this.events.emit('inventory:cat-updated');
+    this.save();
+    return leftover > 0 ? { success: false, reason: 'inventory-full' } : { success: true };
+  }
+
+  /** @returns {{slotIndex: number, itemId: string|null, count: number}[]} snapshot copy of the cat's slots */
+  getCatSlots() {
+    return this._catSlots.map((slot) => ({ ...slot }));
+  }
+
+  /**
+   * @param {string} itemId
+   * @returns {number} total units of that item currently hidden in the cat
+   */
+  getCatItemCount(itemId) {
+    return this._catSlots.reduce((sum, slot) => (slot.itemId === itemId ? sum + slot.count : sum), 0);
+  }
+
+  /**
+   * Shared placement loop for `stashInCat`/`retrieveFromCat`'s rollback — same stacking rule as
+   * `addItem` (see module docstring's STACKING note), just parameterized over which slot array
+   * to fill, since the cat's slots are a second, much smaller array of the exact same shape.
+   * Does NOT touch `_definitions`/events/persistence itself; callers do that.
+   * @param {{slotIndex: number, itemId: string|null, count: number}[]} slots
+   * @param {string} itemId
+   * @param {number} amount
+   * @returns {number} leftover units that did NOT fit
+   * @private
+   */
+  _fillSlots(slots, itemId, amount) {
+    const definition = this._definitions.get(itemId);
+    let remaining = amount;
+    if (definition.stackable) {
+      for (const slot of slots) {
+        if (remaining <= 0) break;
+        if (slot.itemId !== itemId || slot.count >= definition.maxStack) continue;
+        const space = definition.maxStack - slot.count;
+        const take = Math.min(space, remaining);
+        slot.count += take;
+        remaining -= take;
+      }
+    }
+    for (const slot of slots) {
+      if (remaining <= 0) break;
+      if (slot.itemId !== null) continue;
+      const take = Math.min(definition.maxStack, remaining);
+      slot.itemId = itemId;
+      slot.count = take;
+      remaining -= take;
+    }
+    return remaining;
+  }
+
+  /**
    * Removes up to `amount` (default: the whole stack) units from one specific slot and fires
    * `'inventory:item-dropped'` — world code decides whether that means spawning a pickup back, or
    * just discarding it.
@@ -403,6 +522,10 @@ class InventoryManagerImpl {
   save() {
     const payload = {
       slots: this._slots.map((slot) => ({ itemId: slot.itemId, count: slot.count })),
+      // Persisted alongside the regular grid (same storage key) but kept in its own field so
+      // older saves without it just fall back to an empty cat (see `load()` below) rather than
+      // breaking.
+      catSlots: this._catSlots.map((slot) => ({ itemId: slot.itemId, count: slot.count })),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }
@@ -439,6 +562,26 @@ class InventoryManagerImpl {
       }
       if (!this._definitions.has(saved.itemId)) {
         console.warn(`[InventoryManager] saved slot ${index} references unknown item "${saved.itemId}"; clearing it.`);
+        slot.itemId = null;
+        slot.count = 0;
+        return;
+      }
+      slot.itemId = saved.itemId;
+      slot.count = saved.count ?? 0;
+    });
+
+    // Cat slots — same resilience rules as the main grid just above.
+    const savedCatSlots = Array.isArray(payload.catSlots) ? payload.catSlots : [];
+    savedCatSlots.forEach((saved, index) => {
+      const slot = this._catSlots[index];
+      if (!slot) return;
+      if (saved.itemId === null || saved.itemId === undefined) {
+        slot.itemId = null;
+        slot.count = 0;
+        return;
+      }
+      if (!this._definitions.has(saved.itemId)) {
+        console.warn(`[InventoryManager] saved cat slot ${index} references unknown item "${saved.itemId}"; clearing it.`);
         slot.itemId = null;
         slot.count = 0;
         return;

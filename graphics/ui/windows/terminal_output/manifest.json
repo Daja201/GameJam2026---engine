@@ -1,21 +1,23 @@
 {
   "id": "terminal_output",
   "display_name": "Terminal",
-  "skin": "terminal_output",
+  "skin": null,
+  "backgroundColor": "#000000",
   "anchor": "center",
   "modal": false,
-  "size": { "width": 440, "height": 230 },
+  "size": { "width": 480, "height": 270 },
   "layout": "free",
   "elements": [
     {
       "id": "output",
       "type": "scrollable-text",
-      "x": 10,
-      "y": 8,
-      "width": 420,
-      "height": 214,
-      "fontSize": "8px",
-      "color": "#33ff33",
+      "x": 16,
+      "y": 14,
+      "width": 448,
+      "height": 242,
+      "fontSize": "10px",
+      "fontFamily": "\"Ubuntu Mono\", monospace",
+      "color": "#00ff00",
       "text": ""
     }
   ]

@@ -4,11 +4,51 @@ const DEFAULT_WIDTH = 200;
 const DEFAULT_HEIGHT = 80;
 const DEFAULT_FONT_SIZE = '10px';
 const DEFAULT_COLOR = '#ffffff';
+const DEFAULT_FONT_FAMILY = 'monospace';
 
 /**
- * A word-wrapped text panel that always fits within a fixed box. Exposes `appendLine(text)` and
- * `scrollToBottom()` (module 08/Terminal calls these two by name, so they must match precisely),
- * plus `clear()` (for CLIParser's `clear` command) and `setPendingLine(text)` (see below).
+ * A canvas-rendered `Phaser.GameObjects.Text` only has as many actual pixels to draw with as its
+ * own logical (game-unit) size — the whole game canvas is then scaled up on top of that by
+ * `DisplayManager`'s integer zoom (`game.scale.setZoom`, see display/DisplayManager.js), which
+ * blurs/jaggies small text at zoom > 1 unless the Text object itself renders at a matching higher
+ * internal pixel density to begin with. `resolution` is exactly that density knob. Recomputed
+ * (not just set once) since the zoom can change later — window resize, entering/leaving
+ * fullscreen — see the `resize`/`fullscreenchange` listeners below.
+ * @param {Phaser.Scene} scene
+ * @returns {number}
+ */
+function currentTextResolution(scene) {
+  const zoom = scene.game?.scale?.zoom || 1;
+  const dpr = window.devicePixelRatio || 1;
+  // Clamped: past ~4x there's no visible sharpness gain at this engine's font sizes, and an
+  // uncapped zoom*dpr (a large fullscreen window on a high-DPI/retina display easily produces
+  // 8-10x) generates a needlessly huge per-Text canvas — some GPUs silently corrupt/garble glyphs
+  // rather than erroring once a dynamic texture gets large enough, which reads as random blocky
+  // artifacts in specific spots rather than a clean failure.
+  return Math.min(zoom * dpr, 4);
+}
+
+/**
+ * FIX (readability — text came out blurry/fuzzy, not crisp): `phaserConfig.js` sets
+ * `pixelArt: true` project-wide so sprite textures use nearest-neighbor filtering (correct for
+ * pixel art). Phaser's canvas-rendered Text objects are backed by a texture too, and by default
+ * they inherit that same renderer-wide filter setting — nearest-neighbor sampling of an
+ * antialiased font glyph is exactly the wrong filter (it's built for crisp hard pixel edges, not
+ * smooth glyph curves), and is what was actually causing the fuzzy/aliased look, not a missing
+ * `resolution` — `setResolution` alone was fighting the wrong filter the whole time. Forces this
+ * one Text object's own texture back to linear/smooth filtering, independent of the project-wide
+ * pixel-art default.
+ * @param {Phaser.GameObjects.Text} textObject
+ * @returns {void}
+ */
+function useLinearFiltering(textObject) {
+  textObject.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+}
+
+/**
+ * A word-wrapped text panel that retains scrollback while rendering only the portion that fits
+ * in its fixed viewport. Mouse-wheel scrolling browses retained output; new lines keep following
+ * the bottom unless the user has scrolled into history.
  *
  * FIX (overflow bug — text rendering past the panel's visible bottom edge): the previous
  * implementation clipped content with a Phaser `GeometryMask` on a Container nested two levels
@@ -32,7 +72,7 @@ const DEFAULT_COLOR = '#ffffff';
  * CLICKING A LINE: set `container.onLineClick = (lineIndex) => {...}` any time after this
  * returns (same opt-in pattern as `ListElement`'s `ctx.onItemClick`) to get a callback with the
  * index into the *committed* `lines` array (NOT the currently-visible slice — `renderFitting` may
- * have trimmed the oldest lines off-screen, so a raw visible-row count would point at the wrong
+ * have scrolled older lines out of view, so a raw visible-row count would point at the wrong
  * line the moment that happens). `lineIndex` lines up with whatever order the caller built via
  * `appendLine`, so a caller tracking "which block did line N belong to" (e.g. QuestLogScreenController
  * mapping lines back to quests) can use it directly.
@@ -44,7 +84,7 @@ const DEFAULT_COLOR = '#ffffff';
  * @param {object} elementManifest - `{ id, type: 'scrollable-text', width?, height?, text?, fontSize?, color? }`
  * @param {{ settingsStore: object, windowHandle: object }} ctx
  * @returns {Phaser.GameObjects.Container} container also exposes `.appendLine(text)`,
- *   `.scrollToBottom()` (no-op now, kept for API compatibility), `.clear()`, `.setPendingLine(text)`,
+ *   `.scrollToBottom()`, `.clear()`, `.setPendingLine(text)`,
  *   and the optional `.onLineClick(lineIndex)` hook described above
  */
 export function buildScrollableText(scene, elementManifest, ctx) {
@@ -52,13 +92,19 @@ export function buildScrollableText(scene, elementManifest, ctx) {
   const height = elementManifest.height ?? DEFAULT_HEIGHT;
   const fontSize = elementManifest.fontSize ?? DEFAULT_FONT_SIZE;
   const color = elementManifest.color ?? DEFAULT_COLOR;
+  // Optional override — e.g. the Terminal's window manifest sets this to a loaded webfont (see
+  // display/FontLoader.js) with a trailing `, monospace` fallback. Every other existing caller
+  // omits it and keeps getting plain 'monospace', unchanged.
+  const fontFamily = elementManifest.fontFamily ?? DEFAULT_FONT_FAMILY;
 
   const textObject = scene.add.text(0, 0, elementManifest.text ?? '', {
-    fontFamily: 'monospace',
+    fontFamily,
     fontSize,
     color,
     wordWrap: { width },
   });
+  textObject.setResolution(currentTextResolution(scene));
+  useLinearFiltering(textObject);
 
   const container = scene.add.container(0, 0, [textObject]);
 
@@ -69,10 +115,12 @@ export function buildScrollableText(scene, elementManifest, ctx) {
   /** Current uncommitted input line (e.g. what the user is still typing), or null for none. */
   let pendingLine = null;
 
-  /** Index into `lines` of whatever is currently the FIRST visible row (0 until trimming kicks
-   * in) — kept in sync by `renderFitting`. */
-  let renderedStartIndex = 0;
-
+  /** First transcript line in the viewport. */
+  let scrollOffset = 0;
+  /** Whether new output should keep the viewport pinned to the newest lines. */
+  let followsBottom = true;
+  /** First line index that displays the newest output while filling the viewport. */
+  let maxScrollOffset = 0;
   /**
    * BUG FIX (click hit-testing pointed at the wrong quest/line): visible ROWS and committed
    * LINES are not the same thing once word-wrap is involved — a single long `appendLine(...)`
@@ -88,32 +136,55 @@ export function buildScrollableText(scene, elementManifest, ctx) {
   let rowOwners = [];
 
   /**
-   * Sets textObject's content to the largest trailing slice of `allLines` whose rendered
-   * (word-wrapped) height still fits within `height`. Measures by actually setting text and
-   * reading back `.height`, since word-wrap makes line count alone an unreliable proxy for
-   * rendered height.
+   * Renders the largest wrapped slice that fits from the selected first line. At the bottom,
+   * anchors the viewport to the newest output; when scrolled, the start index is preserved.
    * @param {string[]} allLines
    * @returns {void}
    */
   const renderFitting = (allLines) => {
-    let start = 0;
-    // Try showing everything first; if too tall, drop the oldest line and re-measure, repeating
-    // until it fits or only one line remains (never show literally nothing).
-    // This is O(n) re-measures in the worst case, which is fine at terminal-scale line counts.
-    for (;;) {
-      const candidate = allLines.slice(start);
-      textObject.setText(candidate.join('\n'));
-      if (textObject.height <= height || candidate.length <= 1) break;
-      start += 1;
+    if (allLines.length === 0) {
+      textObject.setText('');
+      scrollOffset = 0;
+      maxScrollOffset = 0;
+      rowOwners = [];
+      return;
     }
-    renderedStartIndex = start;
+
+    let bottomStart = allLines.length - 1;
+    textObject.setText(allLines.slice(bottomStart).join('\n'));
+    while (bottomStart > 0) {
+      const candidateStart = bottomStart - 1;
+      textObject.setText(allLines.slice(candidateStart).join('\n'));
+      if (textObject.height > height) {
+        textObject.setText(allLines.slice(bottomStart).join('\n'));
+        break;
+      }
+      bottomStart = candidateStart;
+    }
+
+    maxScrollOffset = bottomStart;
+    const start = followsBottom
+      ? bottomStart
+      : Math.min(scrollOffset, bottomStart);
+    scrollOffset = start;
+
+    let end = start + 1;
+    textObject.setText(allLines.slice(start, end).join('\n'));
+    while (end < allLines.length) {
+      textObject.setText(allLines.slice(start, end + 1).join('\n'));
+      if (textObject.height > height) {
+        textObject.setText(allLines.slice(start, end).join('\n'));
+        break;
+      }
+      end += 1;
+    }
 
     // Rebuild the visual-row -> real-line-index map (see `rowOwners` doc above). Each committed
     // line is measured on its own, with the exact same font/wordWrap settings as the real text
     // object, to find out how many rows IT ALONE renders as; that count of rows is then
     // attributed to that line's real index in `lines`.
     rowOwners = [];
-    allLines.slice(start).forEach((lineText, i) => {
+    allLines.slice(start, end).forEach((lineText, i) => {
       rowHeightProbe.setText(lineText);
       const rowCount = Math.max(1, Math.round(rowHeightProbe.height / lineHeight));
       for (let r = 0; r < rowCount; r += 1) rowOwners.push(start + i);
@@ -123,6 +194,13 @@ export function buildScrollableText(scene, elementManifest, ctx) {
   const redraw = () => {
     const allLines = pendingLine === null ? lines : [...lines, pendingLine];
     renderFitting(allLines);
+    // FIX (blur came back after the very first keystroke/appendLine): `Text#setText` — called
+    // inside `renderFitting` above, every single redraw — rebuilds the GameObject's underlying
+    // WebGL texture from scratch each time (`renderer.canvasToTexture`), which resets its filter
+    // back to this project's `pixelArt: true` default (nearest-neighbor) on every rebuild, not
+    // just the first one. Setting it once at creation (further down) only held until the next
+    // character typed; it has to be re-applied after every redraw, not once.
+    useLinearFiltering(textObject);
   };
 
   container.appendLine = (line) => {
@@ -142,16 +220,19 @@ export function buildScrollableText(scene, elementManifest, ctx) {
     redraw();
   };
 
-  /** Kept for API compatibility with callers written against the old scroll-based version;
-   * content is now always "scrolled to bottom" by construction (renderFitting always shows the
-   * most recent fitting lines), so this is a no-op. */
-  container.scrollToBottom = () => {};
+  container.scrollToBottom = () => {
+    followsBottom = true;
+    scrollOffset = 0;
+    redraw();
+  };
 
   /** Removes all committed lines and any pending line. */
   container.clear = () => {
     lines.length = 0;
     pendingLine = null;
-    textObject.setText('');
+    followsBottom = true;
+    scrollOffset = 0;
+    redraw();
   };
 
   /** Optional per-line click hook; a no-op until a caller assigns one (see module docstring). */
@@ -160,7 +241,7 @@ export function buildScrollableText(scene, elementManifest, ctx) {
   // One-line probe in the exact same style textObject uses, just to read a reliable per-line
   // pixel height back from Phaser (word-wrapped multi-line height isn't a clean multiple of a
   // single line's height, so measuring a lone line is the only accurate way to get this).
-  const lineHeightProbe = scene.add.text(0, 0, 'Mg', { fontFamily: 'monospace', fontSize, wordWrap: { width } });
+  const lineHeightProbe = scene.add.text(0, 0, 'Mg', { fontFamily, fontSize, wordWrap: { width } });
   const lineHeight = lineHeightProbe.height || 1;
   lineHeightProbe.destroy();
 
@@ -168,10 +249,44 @@ export function buildScrollableText(scene, elementManifest, ctx) {
   // to (see `rowOwners` / `renderFitting` above). Not a child of `container`, so it must be
   // cleaned up explicitly when the container goes away, or it leaks a Text object + GL resources
   // every time this element is rebuilt (e.g. every time the Quest Log is reopened).
-  const rowHeightProbe = scene.add.text(0, 0, '', { fontFamily: 'monospace', fontSize, wordWrap: { width } });
+  const rowHeightProbe = scene.add.text(0, 0, '', { fontFamily, fontSize, wordWrap: { width } });
   container.once('destroy', () => rowHeightProbe.destroy());
 
+  // Keeps `textObject`'s resolution matching the CURRENT zoom (see `currentTextResolution`'s own
+  // doc) — a resize or fullscreen toggle changes `DisplayManager`'s integer zoom well after this
+  // element is first built, and a stale resolution would silently go blurry again from that
+  // point on.
+  // FIX: `setResolution` rebuilds the Text object's internal canvas texture, which resets its
+  // filter mode back to the project-wide `pixelArt` default — so `useLinearFiltering` has to be
+  // re-applied every time resolution is recalculated, not just once at creation, or the blur
+  // would come back the first time the window is resized/fullscreen is toggled.
+  const updateTextResolution = () => {
+    textObject.setResolution(currentTextResolution(scene));
+    useLinearFiltering(textObject);
+  };
+  window.addEventListener('resize', updateTextResolution);
+  document.addEventListener('fullscreenchange', updateTextResolution);
+  container.once('destroy', () => {
+    window.removeEventListener('resize', updateTextResolution);
+    document.removeEventListener('fullscreenchange', updateTextResolution);
+  });
+
   container.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
+  const localPoint = new Phaser.Math.Vector2();
+  const onWheel = (pointer, _over, _deltaX, deltaY) => {
+    container.getWorldTransformMatrix().applyInverse(pointer.worldX, pointer.worldY, localPoint);
+    if (localPoint.x < 0 || localPoint.x > width || localPoint.y < 0 || localPoint.y > height) return;
+
+    const allLines = pendingLine === null ? lines : [...lines, pendingLine];
+    if (allLines.length === 0) return;
+    const direction = Math.sign(deltaY);
+    if (direction === 0) return;
+    scrollOffset = Math.max(0, Math.min(maxScrollOffset, scrollOffset + direction * 3));
+    followsBottom = scrollOffset === maxScrollOffset;
+    redraw();
+  };
+  scene.input.on('wheel', onWheel);
+  container.once('destroy', () => scene.input.off('wheel', onWheel));
   container.on('pointerdown', (pointer, localX, localY) => {
     if (!container.onLineClick) return;
     const visibleRow = Math.floor(localY / lineHeight);

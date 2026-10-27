@@ -50,6 +50,18 @@ const AUTO_SIZE_PADDING = 12;
 // whatever's behind it (world/backdrop) instead of covering literally every pixel.
 const FILL_MARGIN = 8;
 
+/**
+ * Parses a `"#rrggbb"` string into a Phaser-style `0xrrggbb` number, for `manifest.backgroundColor`
+ * on a skin-less window (see the panel-building block below). Returns `null` for anything that
+ * doesn't match, in which case the caller falls back to black.
+ * @param {string} hex
+ * @returns {number|null}
+ */
+function parseHexColor(hex) {
+  const match = typeof hex === 'string' ? /^#?([0-9a-fA-F]{6})$/.exec(hex.trim()) : null;
+  return match ? parseInt(match[1], 16) : null;
+}
+
 /** Element type name -> builder function. */
 const ELEMENT_BUILDERS = {
   label: buildLabel,
@@ -258,11 +270,22 @@ export const WindowFactory = {
       cam.on('followupdate', repositionOverlay);
     }
 
-    const panel = scene.add.nineslice(
-      0, 0, `${manifest.skin}:panel`,
-      undefined, panelWidth, panelHeight,
-      16, 16, 16, 16, // default slice insets; a jam-scale skin convention, not asset-specific
-    ).setOrigin(0, 0);
+    // `manifest.skin` is optional: most windows still use a nineslice-framed panel texture
+    // (unchanged, see SKIN PATH CONVENTION doc above). A window with `"skin": null` instead gets
+    // a single flat rectangle with NO 9-slice border/chrome at all — for a screen meant to read
+    // as a full takeover (e.g. the Terminal) rather than "a window opened over the world/UI
+    // behind it". `manifest.backgroundColor` (a `"#rrggbb"` string) tints it; omitted, it's
+    // pure black (`0x000000`) — e.g. an OLED-style terminal background.
+    const panel = manifest.skin
+      ? scene.add.nineslice(
+          0, 0, `${manifest.skin}:panel`,
+          undefined, panelWidth, panelHeight,
+          16, 16, 16, 16, // default slice insets; a jam-scale skin convention, not asset-specific
+        ).setOrigin(0, 0)
+      : scene.add.rectangle(
+          0, 0, panelWidth, panelHeight,
+          parseHexColor(manifest.backgroundColor) ?? 0x000000,
+        ).setOrigin(0, 0);
     rootContainer.add(panel);
 
     // Elements were built, measured, and positioned above (before panel size was even known);

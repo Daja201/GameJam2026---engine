@@ -118,6 +118,7 @@ export class WorldScreenController extends ScreenController {
   /** @param {object} [params] @returns {void} */
   onEnter(params) {
     const { scene } = this.engine;
+    AudioManager.playMusic('music:gameplay', { loop: true });
 
     // Lets a pushed-on-top screen (e.g. the pause menu) reach this controller while it's mounted
     // underneath (see main.js's 'menu-start'/'pause-open-map' action registrations). Cleared in onExit.
@@ -842,6 +843,7 @@ export class WorldScreenController extends ScreenController {
 
   /** @returns {void} */
   onExit() {
+    AudioManager.stopMusic();
     if (this.engine.worldController === this) this.engine.worldController = null;
     this._unsubscribeHitboxDebug?.();
     this.engine.scene.physics.world.drawDebug = false; // stop postUpdate from touching the graphic we're about to destroy

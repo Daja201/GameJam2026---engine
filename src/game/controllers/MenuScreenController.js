@@ -1,6 +1,7 @@
 import { ScreenController } from '../../engine/screens/ScreenController.js';
 import { DEPTH } from '../../engine/display/DepthLayers.js';
 import { INTERNAL_WIDTH, INTERNAL_HEIGHT } from '../../engine/display/constants.js';
+import { AudioManager } from '../../engine/audio/AudioManager.js';
 
 /** How many ambient foreground motes drift across the menu. Still cheap (plain tweened rectangles, no particle manager) — this is atmosphere, not a feature. */
 const MOTE_COUNT = 24;
@@ -53,6 +54,7 @@ export class MenuScreenController extends ScreenController {
   /** @param {object} [params] @returns {void} */
   onEnter(params) {
     const { scene } = this.engine;
+    AudioManager.playMusic('music:gui-menu', { loop: true });
 
     // --- Foreground ambient motes (atmosphere) --------------------------------------------
     this._motes = [];
@@ -111,6 +113,7 @@ export class MenuScreenController extends ScreenController {
 
   /** @returns {void} */
   onExit() {
+    AudioManager.stopMusic();
     for (const mote of this._motes ?? []) {
       this.engine.scene.tweens.killTweensOf(mote);
       mote.destroy();

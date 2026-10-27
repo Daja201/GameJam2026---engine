@@ -1,7 +1,6 @@
 import { ScreenController } from '../../engine/screens/ScreenController.js';
 import { CLIParser } from '../../engine/terminal/CLIParser.js';
 import { exampleFileSystem, EXAMPLE_TARGET_PASSWORD } from '../../engine/terminal/fakeFileSystem.example.js';
-import { createCRTOverlay } from '../../engine/terminal/CRTOverlay.js';
 import { LoopManager } from '../../engine/loop/LoopManager.js';
 import { InventoryManager } from '../../engine/inventory/InventoryManager.js';
 
@@ -14,8 +13,7 @@ const CURSOR_BLINK_MS = 450;
 
 /**
  * Example "Terminal" screen: composes module 08's `CLIParser` with module 07's
- * `scrollable-text` element (via the `terminal_output` window, this screen's one `ui_window`)
- * and module 08's `CRTOverlay`.
+ * `scrollable-text` element (via the `terminal_output` window, this screen's one `ui_window`).
  *
  * FIX (this revision): the input line used to be a second, separately positioned
  * `Phaser.GameObjects.Text` with a hardcoded (x, y) — it could visually drift out of sync with
@@ -52,13 +50,18 @@ export class TerminalScreenController extends ScreenController {
     this._blinkAccum = 0;
     this._redrawPrompt();
 
-    this._onCrackSuccess = () => {
+    // FIX (file-crack unification): CLIParser's `crack` now also handles `crack <file> <guess>`,
+    // reusing this SAME event rather than inventing a second one (see CLIParser.js's own doc) —
+    // its payload carries `{ file }` when it was a file unlock. Only the ORIGINAL root-password
+    // guess (no `file` in the payload) should award a fragment and kick the player back out to
+    // World; a file-crack should just leave them in the terminal to read what they unlocked.
+    this._onCrackSuccess = (payload) => {
+      if (payload && payload.file) return;
       LoopManager.addFragment(FRAGMENT_ID);
       scene.time.delayedCall(POP_DELAY_MS, () => this.engine.screenManager.pop());
     };
     scene.events.on('terminal:crack-success', this._onCrackSuccess);
 
-    this.crt = createCRTOverlay(scene);
   }
 
   /**
@@ -74,7 +77,7 @@ export class TerminalScreenController extends ScreenController {
       this.buffer = this.buffer.slice(0, -1);
       this._redrawPrompt();
     } else if (action === 'text-enter') {
-      this.output.appendLine(`> ${this.buffer}`);
+      this.output.appendLine(`${this._promptPrefix()}${this.buffer}`);
       const lines = this.parser.run(this.buffer, { clear: () => this.output.clear() });
       lines.forEach((line) => this.output.appendLine(line));
       this.buffer = '';
@@ -99,7 +102,12 @@ export class TerminalScreenController extends ScreenController {
    * @returns {void} @private */
   _redrawPrompt() {
     const cursor = this._cursorOn ? '\u2588' : ' '; // U+2588 FULL BLOCK, classic terminal caret
-    this.output.setPendingLine(`> ${this.buffer}${cursor}`);
+    this.output.setPendingLine(`${this._promptPrefix()}${this.buffer}${cursor}`);
+  }
+
+  /** @returns {string} @private */
+  _promptPrefix() {
+    return `${this.parser.state.identity}:${this.parser.state.cwd}$ `;
   }
 
   /**
@@ -142,12 +150,46 @@ export class TerminalScreenController extends ScreenController {
       const definition = InventoryManager.useItem(slotIndex);
       return definition ? [`used ${definition.name}`] : [`use: slot ${slotIndex} is empty`];
     }, 'use <slot> - use an item by its inventory slot number');
+
+    // The diegetic "cat" mechanic (see /storycontext.md's "The Cat" section): `save` moves an
+    // item OUT of the normal inventory and into the cat's own small, reset-exempt slot set
+    // (`InventoryManager.stashInCat`/`retrieveFromCat` — see that file's doc for why it's a
+    // separate array, never touched by the regular `resetAll()`). This is the player's actual
+    // risk/tension decision each session, so it has to move real items, not just print flavor
+    // text. ASSUMPTION: `--slot=<n>` is accepted but ignored (placement in the cat is automatic,
+    // not manually targetable) — jam-scope stub, flagged here rather than left silently unused.
+    parser.registerCommand('save', (args) => {
+      const [itemId] = args.filter((arg) => !arg.startsWith('-'));
+      if (!itemId) return ['usage: save <item> [--slot=<n>]'];
+      const definition = InventoryManager.getItemDefinition(itemId);
+      if (!definition) return [`save: unknown item "${itemId}"`];
+      const result = InventoryManager.stashInCat(itemId, 1);
+      if (!result.success) {
+        return [result.reason === 'not-held'
+          ? `save: you aren't carrying ${itemId}`
+          : "save: the cat has nowhere left to hide that"];
+      }
+      return [`${definition.name} hidden in the cat. it should survive the walk out.`];
+    }, 'save <item> [--slot=<n>] - hide an item in the cat (survives a reset)');
+
+    parser.registerCommand('load', (args) => {
+      const [itemId] = args.filter((arg) => !arg.startsWith('-'));
+      if (!itemId) return ['usage: load <item> [--slot=<n>]'];
+      const definition = InventoryManager.getItemDefinition(itemId);
+      if (!definition) return [`load: unknown item "${itemId}"`];
+      const result = InventoryManager.retrieveFromCat(itemId, 1);
+      if (!result.success) {
+        return [result.reason === 'inventory-full'
+          ? 'load: inventory full, left it with the cat'
+          : `load: the cat isn't carrying ${itemId}`];
+      }
+      return [`retrieved ${definition.name} from the cat.`];
+    }, 'load <item> [--slot=<n>] - retrieve an item the cat was hiding');
   }
 
   /** @returns {void} */
   onExit() {
     this.engine.scene.events.off('terminal:crack-success', this._onCrackSuccess);
-    this.crt.destroy();
   }
 
   /** @returns {void} */

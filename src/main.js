@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { buildPhaserConfig } from './engine/display/phaserConfig.js';
 import { DisplayManager } from './engine/display/DisplayManager.js';
+import { loadFont } from './engine/display/FontLoader.js';
 import { AssetRegistry } from './engine/assets/AssetRegistry.js';
 import { queueSpriteFrames, queueBackgroundAssets } from './engine/assets/PreloadQueueBuilder.js';
 import { SettingsStore } from './engine/settings/SettingsStore.js';
@@ -68,7 +69,8 @@ class BootScene extends Phaser.Scene {
     this.load.json('controls-config', 'config/controls.default.json');
     this.load.json('quests-config', 'config/quests.default.json');
     this.load.json('items-config', 'config/items.default.json');
-    this.load.audio('music:background', 'audio/music/backgroundmusic.mp3');
+    this.load.audio('music:gui-menu', 'audio/music/gui.ogg');
+    this.load.audio('music:gameplay', 'audio/music/lofi.mp3');
   }
 
   /** @returns {Promise<void>} */
@@ -129,7 +131,6 @@ class BootScene extends Phaser.Scene {
     // 3) Settings + audio (module 10).
     SettingsStore.load();
     AudioManager.init(this);
-    AudioManager.playMusic('music:background', { loop: true });
 
     // 4) Input (module 06).
     const controlsConfigJson = this.cache.json.get('controls-config');
@@ -301,6 +302,17 @@ class BootScene extends Phaser.Scene {
     // listener for the player's first click/keypress rather than calling requestFullscreen()
     // directly here, which the browser would just reject.
     DisplayManager.requestFullscreenOnFirstInput(this.game);
+
+    // Terminal screen's webfont (see ScrollableText.js's `fontFamily` support + that screen's
+    // own window manifest) — loaded here, once, so it's guaranteed ready well before the player
+    // can ever reach the Terminal screen (see FontLoader.js's own doc for why boot is the only
+    // correct place to await this). Fails soft: if the font file hasn't been dropped into
+    // graphics/fonts/ yet, Terminal just falls back to the manifest's trailing `, monospace`.
+    try {
+      await loadFont('Ubuntu Mono', 'graphics/fonts/Ubuntu_Mono/UbuntuMono-Regular.ttf');
+    } catch (error) {
+      console.warn('[main] Ubuntu Mono webfont failed to load; Terminal will fall back to monospace.', error);
+    }
 
     // Boot into the unified menu screen (main menu) rather than straight into World — see
     // MenuScreenController.js. Quest auto-start now happens inside the 'menu-start' action
