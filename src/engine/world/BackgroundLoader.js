@@ -29,6 +29,12 @@ const DEPTH_BY_NAME = {
   near: DEPTH.BACKGROUND_NEAR,
 };
 
+const EXTERNAL_TILESET_SOURCES = import.meta.glob('/graphics/tileset/**/*.tsx', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
+
 /**
  * Resolves a layer's `depth` field (named string or raw number) to the depth value to use.
  * @param {string|number|undefined} depth
@@ -52,6 +58,157 @@ function resolveLayerDepth(depth) {
  *   every screen controller having to know/hardcode a specific map's dimensions. Null for
  *   non-tilemap backgrounds (parallax/static have no inherent "world size" to bound movement to).
  */
+
+/**
+ * Converts Tiled's external TSX tileset data into the embedded JSON form Phaser supports.
+ * This project uses external TSX files as metadata for a duplicate of the map's embedded image
+ * tileset, so the duplicate GIDs can be collapsed while retaining its collision definitions.
+ * @param {Phaser.Scene} scene
+ * @param {string} backgroundId
+ * @returns {void}
+ * @throws {Error} if an external TSX cannot safely be merged into the embedded image tileset
+ */
+function mergeExternalTilesets(scene, manifest) {
+  const { id: backgroundId, tilemap: config } = manifest;
+  const cachedMap = scene.cache.tilemap.get(`${backgroundId}:tilemap`);
+  const mapJson = cachedMap?.data;
+  if (!mapJson?.tilesets?.some((tileset) => tileset.source)) return;
+
+  const resolveSourcePath = (source) => {
+    const parts = `graphics/backgrounds/${backgroundId}/${config.source}`.split('/');
+    parts.pop();
+    for (const part of source.split('/')) {
+      if (!part || part === '.') continue;
+      if (part === '..') parts.pop();
+      else parts.push(part);
+    }
+    return `/${parts.join('/')}`;
+  };
+  const embedded = mapJson.tilesets.find((tileset) => tileset.image && !tileset.source);
+  if (!embedded) {
+    throw new Error(`Background "${backgroundId}": external TSX requires an embedded image tileset`);
+  }
+
+  const externalSets = mapJson.tilesets.filter((tileset) => tileset.source);
+  const metadataById = new Map((embedded.tiles || []).map((tile) => [tile.id, tile]));
+  for (const external of externalSets) {
+    const sourcePath = resolveSourcePath(external.source);
+    const source = EXTERNAL_TILESET_SOURCES[sourcePath];
+    if (typeof source !== 'string') {
+      throw new Error(`Background "${backgroundId}": external tileset "${sourcePath}" is not bundled`);
+    }
+    const xml = new DOMParser().parseFromString(source, 'application/xml');
+    const root = xml.documentElement;
+    if (!root || root.nodeName !== 'tileset') {
+      throw new Error(`Background "${backgroundId}": could not load external tileset "${external.source}"`);
+    }
+
+    const readNumber = (element, name, fallback = 0) => {
+      const value = Number(element.getAttribute(name));
+      return Number.isFinite(value) ? value : fallback;
+    };
+    const tileWidth = readNumber(root, 'tilewidth');
+    const tileHeight = readNumber(root, 'tileheight');
+    const tileCount = readNumber(root, 'tilecount');
+    const columns = readNumber(root, 'columns');
+    if (
+      root.getAttribute('name') !== embedded.name
+      || tileWidth !== embedded.tilewidth
+      || tileHeight !== embedded.tileheight
+      || tileCount !== embedded.tilecount
+      || columns !== embedded.columns
+    ) {
+      throw new Error(
+        `Background "${backgroundId}": external TSX "${external.source}" does not match `
+        + `embedded tileset "${embedded.name}"`
+      );
+    }
+
+    const tiles = Array.from(root.children)
+      .filter((element) => element.nodeName === 'tile')
+      .map((element) => {
+        const tile = { id: readNumber(element, 'id') };
+        const properties = Array.from(element.children).find((child) => child.nodeName === 'properties');
+        if (properties) {
+          tile.properties = Array.from(properties.children).map((property) => {
+            const type = property.getAttribute('type') || 'string';
+            const rawValue = property.getAttribute('value') ?? property.textContent ?? '';
+            let value = rawValue;
+            if (type === 'bool') value = rawValue === 'true';
+            else if (type === 'int' || type === 'float') value = Number(rawValue);
+            return { name: property.getAttribute('name'), type, value };
+          });
+        }
+
+        const objectGroup = Array.from(element.children).find((child) => child.nodeName === 'objectgroup');
+        if (objectGroup) {
+          const objects = Array.from(objectGroup.children)
+            .filter((child) => child.nodeName === 'object')
+            .map((object) => {
+              const parsed = {
+                id: readNumber(object, 'id'),
+                name: object.getAttribute('name') || '',
+                type: object.getAttribute('type') || '',
+                x: readNumber(object, 'x'),
+                y: readNumber(object, 'y'),
+                width: readNumber(object, 'width'),
+                height: readNumber(object, 'height'),
+                rotation: readNumber(object, 'rotation'),
+                visible: object.getAttribute('visible') !== '0',
+              };
+              for (const shapeName of ['polygon', 'polyline']) {
+                const shape = Array.from(object.children).find((child) => child.nodeName === shapeName);
+                if (shape) {
+                  parsed[shapeName] = (shape.getAttribute('points') || '').split(' ')
+                    .filter(Boolean)
+                    .map((point) => {
+                      const [x, y] = point.split(',').map(Number);
+                      return { x, y };
+                    });
+                }
+              }
+              if (Array.from(object.children).some((child) => child.nodeName === 'ellipse')) {
+                parsed.ellipse = true;
+              }
+              if (Array.from(object.children).some((child) => child.nodeName === 'point')) {
+                parsed.point = true;
+              }
+              return parsed;
+            });
+          tile.objectgroup = {
+            draworder: objectGroup.getAttribute('draworder') || 'index',
+            objects,
+          };
+        }
+        return tile;
+      });
+
+    for (const tile of tiles) {
+      const existing = metadataById.get(tile.id) || { id: tile.id };
+      metadataById.set(tile.id, {
+        ...existing,
+        ...tile,
+        properties: [...(existing.properties || []), ...(tile.properties || [])],
+      });
+    }
+
+    const firstGid = external.firstgid;
+    const endGid = firstGid + tileCount;
+    for (const layer of mapJson.layers) {
+      if (layer.type !== 'tilelayer' || !Array.isArray(layer.data)) continue;
+      layer.data = layer.data.map((rawGid) => {
+        const gid = rawGid >>> 0;
+        const flags = gid & 0xe0000000;
+        const baseGid = gid & 0x1fffffff;
+        if (baseGid < firstGid || baseGid >= endGid) return rawGid;
+        return (flags | (baseGid - tileCount)) >>> 0;
+      });
+    }
+  }
+
+  embedded.tiles = [...metadataById.values()];
+  mapJson.tilesets = mapJson.tilesets.filter((tileset) => !tileset.source);
+}
 
 /** Singleton that builds and swaps backgrounds. Implements the shared `BackgroundLoader` interface. */
 export const BackgroundLoader = {
@@ -93,6 +250,7 @@ export const BackgroundLoader = {
 
       case 'tilemap': {
         const cfg = manifest.tilemap;
+        mergeExternalTilesets(scene, manifest);
         // ASSUMPTION/FIX: the Tiled JSON was registered on the Phaser cache under the convention
         // key `${id}:tilemap` by module 03's PreloadQueueBuilder — `scene.make.tilemap` needs that
         // cache key, not the manifest's raw `source` file path (which is only used at load time).
@@ -143,15 +301,27 @@ export const BackgroundLoader = {
               const shapes = tileset.getTileData(tile.index)?.objectgroup?.objects;
               if (!shapes || !shapes.length) return;
               for (const shape of shapes) {
-                // Tiled gives rectangle shapes as top-left x/y + width/height, in the TILE's own
-                // local pixel space (0,0 = tile's top-left corner); Arcade static bodies are
-                // centered on their GameObject's x/y, hence the +width/2,+height/2 below.
-                if (shape.width == null || shape.height == null) continue; // skip non-rectangle shapes (polygons/ellipses/points) — not supported here
+                let { x, y, width, height } = shape;
+                if (shape.polygon?.length) {
+                  const xs = shape.polygon.map((point) => point.x);
+                  const ys = shape.polygon.map((point) => point.y);
+                  const minX = Math.min(...xs);
+                  const minY = Math.min(...ys);
+                  const maxX = Math.max(...xs);
+                  const maxY = Math.max(...ys);
+                  x += minX;
+                  y += minY;
+                  width = maxX - minX;
+                  height = maxY - minY;
+                }
+                if (width == null || height == null || width <= 0 || height <= 0) continue;
+                // Arcade Physics only supports axis-aligned rectangles here. Tiled rectangles
+                // remain exact; polygon boundaries use their bounding rectangle as the solid.
                 const body = scene.add.rectangle(
-                  tile.pixelX + shape.x + shape.width / 2,
-                  tile.pixelY + shape.y + shape.height / 2,
-                  shape.width,
-                  shape.height,
+                  tile.pixelX + x + width / 2,
+                  tile.pixelY + y + height / 2,
+                  width,
+                  height,
                 ).setVisible(false);
                 scene.physics.add.existing(body, /* isStatic */ true);
                 partialHitboxGroup.add(body);

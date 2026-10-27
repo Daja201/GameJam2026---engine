@@ -123,6 +123,11 @@ export class CLIParser {
 
     this.registerCommand('pwd', () => [this.state.cwd], 'print working directory');
 
+    this.registerCommand('exit', () => {
+      this.eventEmitter.emit('terminal:exit');
+      return [];
+    }, 'exit the terminal and return to the game');
+
     this.registerCommand('ls', (args) => {
       const path = resolvePath(this.state.cwd, args[0]);
       const node = this._lookup(path);

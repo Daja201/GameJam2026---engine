@@ -62,6 +62,13 @@ export class TerminalScreenController extends ScreenController {
     };
     scene.events.on('terminal:crack-success', this._onCrackSuccess);
 
+    this._closing = false;
+    this._onExitRequested = () => {
+      this._closing = true;
+      this.engine.screenManager.pop();
+    };
+    scene.events.on('terminal:exit', this._onExitRequested);
+
   }
 
   /**
@@ -81,7 +88,7 @@ export class TerminalScreenController extends ScreenController {
       const lines = this.parser.run(this.buffer, { clear: () => this.output.clear() });
       lines.forEach((line) => this.output.appendLine(line));
       this.buffer = '';
-      this._redrawPrompt();
+      if (!this._closing) this._redrawPrompt();
     } else if (action === 'cancel') {
       this.engine.screenManager.pop();
     }
@@ -89,6 +96,7 @@ export class TerminalScreenController extends ScreenController {
 
   /** @param {number} time @param {number} delta @returns {void} */
   onUpdate(time, delta) {
+    if (this._closing) return;
     this._blinkAccum += delta;
     if (this._blinkAccum >= CURSOR_BLINK_MS) {
       this._blinkAccum = 0;
@@ -190,6 +198,7 @@ export class TerminalScreenController extends ScreenController {
   /** @returns {void} */
   onExit() {
     this.engine.scene.events.off('terminal:crack-success', this._onCrackSuccess);
+    this.engine.scene.events.off('terminal:exit', this._onExitRequested);
   }
 
   /** @returns {void} */

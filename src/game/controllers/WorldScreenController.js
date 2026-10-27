@@ -190,6 +190,7 @@ export class WorldScreenController extends ScreenController {
     // from here on by `onUpdate`/`onExit` — nothing else in this controller needs to know how
     // the follow behavior works internally.
     this.cat = new Companion(scene, 'cat_companion', this.actor.sprite);
+    this.louisa = new Actor(scene, 'louisa', SPAWN_X + 120, SPAWN_Y);
     // NOTE: blocking the player from walking THROUGH the cat is handled by `_keepCatOffPlayer`
     // (called from onUpdate, after both actor/cat `update()`), NOT by `physics.add.collider`.
     // An Arcade collider was tried here first and caused the camera to visibly shake while
@@ -864,6 +865,7 @@ export class WorldScreenController extends ScreenController {
     this.toasts.destroy();
     this.actor.sprite.destroy();
     this.cat.destroy();
+    this.louisa.sprite.destroy();
     this.pc.destroy();
     this.pcVisual.destroy();
     for (const pickup of this.scrapPickups) {
