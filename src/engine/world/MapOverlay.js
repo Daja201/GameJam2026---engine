@@ -2,26 +2,12 @@ import { INTERNAL_WIDTH, INTERNAL_HEIGHT } from '../display/constants.js';
 import { DEPTH } from '../display/DepthLayers.js';
 
 /**
- * FIX (minimap ring): the minimap now sits inside `hud:minimap_ring` (see that texture's
- * generation note in main.js's preload comment) instead of a plain drawn rectangle border. The
- * ring graphic is 72x72 with its opaque interior punched transparent in a circle of
- * HOLE_RADIUS≈23px around its own center.
- *
- * To get an actually-circular minimap (not a square peeking out past the ring, nor a gap of
- * raw unscaled world showing between a too-small square and the ring's inner edge), the minimap
- * CAMERA itself — not a Container/GameObject — gets a circular geometry mask via
- * `camera.setMask()`. This is a different Phaser mechanism than the Container-nested
- * `GeometryMask` bug fixed earlier in ScrollableText.js (that one broke specifically because the
- * mask and its target were buried inside several layers of Container transforms); a camera mask
- * applies directly to the camera's own render target with no such nesting, so it doesn't share
- * that failure mode. MINIMAP_SIZE (the camera's square viewport, BEFORE masking) is sized to
- * fully cover the masked circle; everything outside the circle is then clipped away, leaving a
- * clean, gapless, perfectly circular minimap with no square corners or raw-world slivers.
+ * The minimap camera is clipped to a circle via `camera.setMask()`. Its square viewport is a
+ * little larger than the mask so the camera output fully covers the circle.
  */
-const RING_TEXTURE_KEY = 'hud:minimap_ring';
-const RING_SIZE = 72; // native size of minimap_ring.png — kept 1:1, no scaling, for crisp pixel art
-const HOLE_RADIUS = 23; // measured interior radius of the ring's transparent window, minus a ~1px safety margin
-const MINIMAP_SIZE = HOLE_RADIUS * 2 + 4; // square viewport, a few px larger than the masked circle's diameter
+const HOLE_RADIUS = 23;
+const BORDER_RADIUS = HOLE_RADIUS + 1;
+const MINIMAP_SIZE = HOLE_RADIUS * 2 + 4;
 const MINIMAP_MARGIN = 4;
 // FIX (minimap stuck/not following): this used to be a flat hardcoded zoom (0.03), tuned for one
 // specific old 3904x2304 city map — on that map the minimap's ~50px viewport showed well over
@@ -83,14 +69,10 @@ const BG_COLOR = 0x05070c;
 export function createMapOverlay(scene, opts) {
   const { follow, mapSize, ignore = [] } = opts;
 
-  // The ring graphic's own bounding box sits in the bottom-right corner; the camera viewport is
-  // then centered inside IT (not independently positioned), so the two can never drift apart.
-  const ringX = INTERNAL_WIDTH - RING_SIZE - MINIMAP_MARGIN;
-  const ringY = INTERNAL_HEIGHT - RING_SIZE - MINIMAP_MARGIN;
-  const ringCenterX = ringX + RING_SIZE / 2;
-  const ringCenterY = ringY + RING_SIZE / 2;
-  const miniX = Math.round(ringCenterX - MINIMAP_SIZE / 2);
-  const miniY = Math.round(ringCenterY - MINIMAP_SIZE / 2);
+  const minimapCenterX = INTERNAL_WIDTH - BORDER_RADIUS - MINIMAP_MARGIN;
+  const minimapCenterY = INTERNAL_HEIGHT - BORDER_RADIUS - MINIMAP_MARGIN;
+  const miniX = Math.round(minimapCenterX - MINIMAP_SIZE / 2);
+  const miniY = Math.round(minimapCenterY - MINIMAP_SIZE / 2);
 
   const minimapCam = scene.cameras.add(miniX, miniY, MINIMAP_SIZE, MINIMAP_SIZE);
   minimapCam.setName('minimap');
@@ -99,20 +81,16 @@ export function createMapOverlay(scene, opts) {
   minimapCam.setBounds(0, 0, mapSize.width, mapSize.height);
   minimapCam.startFollow(follow, true);
 
-  // Circular clip for the camera above — see HOLE_RADIUS's doc. Never itself drawn (setVisible
-  // false): it exists purely to hand its geometry to createGeometryMask(). `fixedPosition: true`
-  // on setMask means the mask's (x, y) are screen coordinates (matching this screen-fixed HUD
-  // element), not world coordinates that would scroll away from the ring as the camera follows
-  // the player.
+  // The mask is screen-fixed so it stays aligned with the minimap as the camera follows the player.
   const minimapMaskShape = scene.add.graphics();
   minimapMaskShape.fillStyle(0xffffff);
-  minimapMaskShape.fillCircle(ringCenterX, ringCenterY, HOLE_RADIUS);
+  minimapMaskShape.fillCircle(minimapCenterX, minimapCenterY, HOLE_RADIUS);
   minimapMaskShape.setVisible(false);
   minimapCam.setMask(minimapMaskShape.createGeometryMask(), true);
 
-  // The ring frame itself, drawn ON TOP of the minimap camera's output (higher depth), hollow
-  // center so the live (now circularly-clipped) map shows through — see RING_TEXTURE_KEY's doc.
-  const minimapBorder = scene.add.image(ringX, ringY, RING_TEXTURE_KEY).setOrigin(0, 0);
+  const minimapBorder = scene.add.graphics();
+  minimapBorder.lineStyle(1, BORDER_COLOR, 1);
+  minimapBorder.strokeCircle(minimapCenterX, minimapCenterY, BORDER_RADIUS);
   minimapBorder.setScrollFactor(0);
   minimapBorder.setDepth(DEPTH.UI_HUD);
 

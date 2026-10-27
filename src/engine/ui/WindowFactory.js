@@ -276,17 +276,19 @@ export const WindowFactory = {
     // as a full takeover (e.g. the Terminal) rather than "a window opened over the world/UI
     // behind it". `manifest.backgroundColor` (a `"#rrggbb"` string) tints it; omitted, it's
     // pure black (`0x000000`) — e.g. an OLED-style terminal background.
-    const panel = manifest.skin
-      ? scene.add.nineslice(
-          0, 0, `${manifest.skin}:panel`,
-          undefined, panelWidth, panelHeight,
-          16, 16, 16, 16, // default slice insets; a jam-scale skin convention, not asset-specific
-        ).setOrigin(0, 0)
-      : scene.add.rectangle(
-          0, 0, panelWidth, panelHeight,
-          parseHexColor(manifest.backgroundColor) ?? 0x000000,
-        ).setOrigin(0, 0);
-    rootContainer.add(panel);
+    if (manifest.showPanel !== false) {
+      const panel = manifest.skin
+        ? scene.add.nineslice(
+            0, 0, `${manifest.skin}:panel`,
+            undefined, panelWidth, panelHeight,
+            16, 16, 16, 16, // default slice insets; a jam-scale skin convention, not asset-specific
+          ).setOrigin(0, 0)
+        : scene.add.rectangle(
+            0, 0, panelWidth, panelHeight,
+            parseHexColor(manifest.backgroundColor) ?? 0x000000,
+          ).setOrigin(0, 0);
+      rootContainer.add(panel);
+    }
 
     // Elements were built, measured, and positioned above (before panel size was even known);
     // now that rootContainer exists, parent them into it.

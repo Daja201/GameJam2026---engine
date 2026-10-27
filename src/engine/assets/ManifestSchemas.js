@@ -212,6 +212,7 @@ export const WINDOW_MANIFEST_SCHEMA = {
   properties: {
     id: ID_SCHEMA,
     display_name: { type: 'string' },
+    showPanel: { type: 'boolean' },
     elements: {
       type: 'array',
       items: {

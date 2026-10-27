@@ -6,13 +6,8 @@ import { INTERNAL_HEIGHT, INTERNAL_WIDTH } from '../../engine/display/constants.
  * `gui.zip` mockup): a pill status bar in the bottom-left, a Map button top-right, and a small
  * keyboard-shortcut hint readout underneath it.
  *
- * FIX: the mockup's circular ring graphic (`portrait.png`/`hud:portrait`) is NOT a character
- * portrait — it's the frame meant to surround the live minimap. It used to be drawn here, in the
- * top-left corner, which put it directly underneath WorldScreenController's own independently
- * positioned quest/mode text labels (also top-left) — the exact "graphics thrown over text"
- * overlap this fix removes. The ring now belongs entirely to `engine/world/MapOverlay.js`,
- * bottom-right, framing the minimap camera it was always meant for. Nothing here replaces it;
- * the status bar stays independent from the portrait icon and quest labels.
+ * The circular minimap outline is drawn by `engine/world/MapOverlay.js`; it does not use a HUD
+ * image. The status bar stays independent from the quest labels.
  *
  * FIX (menu/pause screen): the Quit and Inventory BUTTONS that used to sit in this column are
  * gone. Quit's destination (Settings) is now reached via Backspace -> the pause menu -> Settings

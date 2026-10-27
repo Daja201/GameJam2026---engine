@@ -101,8 +101,8 @@ class BootScene extends Phaser.Scene {
     }
 
     // HUD panel art (module 11 addition): not part of any manifest-driven system (sprites,
-    // backgrounds, windows) — it's a handful of fixed, always-on HUD images (portrait/ring frame
-    // and status bar), so it's simplest to just queue them directly here, the same way the
+    // backgrounds, windows) — it's a handful of fixed, always-on HUD images (portrait and status
+    // bar), so it's simplest to just queue them directly here, the same way the
     // window-skin panel textures above are queued directly rather than going through
     // AssetRegistry. See src/game/ui/HudPanel.js for the keys used.
     // FIX (map button removed): 'hud:map' (the old clickable Map button face) is no longer loaded
@@ -110,14 +110,6 @@ class BootScene extends Phaser.Scene {
     // no button image at all. 'hud:quit' was already unused (left loaded harmlessly before this
     // revision); both are dropped now that nothing in this column is a clickable image anymore.
     this.load.image('hud:portrait', 'graphics/ui/hud/portrait.png');
-    // FIX (minimap ring): portrait.png is the same ring-shaped frame graphic — it was being used
-    // as a top-left "character portrait" icon, which is what it visually is NOT (it's a plain
-    // ring with a filled, opaque interior). minimap_ring.png is a processed copy with that
-    // interior punched fully transparent (see the asset's generation note in MapOverlay.js),
-    // so the live minimap camera can actually show through it instead of being hidden behind an
-    // opaque navy disc. 'hud:portrait' is left loaded too, harmlessly unused, in case anything
-    // else ever wants the solid (non-hollow) version of this graphic.
-    this.load.image('hud:minimap_ring', 'graphics/ui/hud/minimap_ring.png');
     this.load.image('hud:bar', 'graphics/ui/hud/bar.png');
 
     // SFX: the cat's reaction sound when the player's fight-mode punch lands on it (see

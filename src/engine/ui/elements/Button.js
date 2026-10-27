@@ -25,7 +25,7 @@ export function buildButton(scene, elementManifest, ctx) {
   const label = scene.add.text(width / 2, height / 2, elementManifest.text ?? '', {
     fontFamily: 'monospace',
     fontSize: '10px',
-    color: '#ffffff',
+    color: '#35e0a8',
   }).setOrigin(0.5, 0.5);
 
   bg.setInteractive({ useHandCursor: true });

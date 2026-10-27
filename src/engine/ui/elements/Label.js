@@ -5,15 +5,15 @@
 
 /**
  * @param {Phaser.Scene} scene
- * @param {object} elementManifest - `{ id, type: 'label', text }`
+ * @param {object} elementManifest - `{ id, type: 'label', text, fontSize?, color? }`
  * @param {{ settingsStore: import('../../settings/SettingsStore.js').SettingsStore, windowHandle: object }} ctx
  * @returns {Phaser.GameObjects.Container} container at (0,0); WindowFactory positions it
  */
 export function buildLabel(scene, elementManifest, ctx) {
   const text = scene.add.text(0, 0, elementManifest.text ?? '', {
     fontFamily: 'monospace',
-    fontSize: '10px',
-    color: '#ffffff',
+    fontSize: elementManifest.fontSize ?? '10px',
+    color: elementManifest.color ?? '#ffffff',
   });
   const container = scene.add.container(0, 0, [text]);
   return container;

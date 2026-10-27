@@ -192,6 +192,8 @@ export class WorldScreenController extends ScreenController {
     if (collisionLayer) scene.physics.add.collider(this.cat.sprite, collisionLayer);
     if (partialHitboxGroup) scene.physics.add.collider(this.cat.sprite, partialHitboxGroup);
     this.louisa = new Actor(scene, 'louisa', SPAWN_X + 120, SPAWN_Y);
+    this.soldier = new Actor(scene, 'soldier', SPAWN_X + 200, SPAWN_Y + 40);
+    this.teacher = new Actor(scene, 'teach', SPAWN_X - 120, SPAWN_Y + 40);
     // NOTE: blocking the player from walking THROUGH the cat is handled by `_keepCatOffPlayer`
     // (called from onUpdate, after both actor/cat `update()`), NOT by `physics.add.collider`.
     // An Arcade collider was tried here first and caused the camera to visibly shake while
@@ -420,6 +422,9 @@ export class WorldScreenController extends ScreenController {
     this._syncActorOrigin();
     this.actor.update(time, delta);
     this.cat.update(time, delta);
+    this.louisa.update(time, delta);
+    this.soldier.update(time, delta);
+    this.teacher.update(time, delta);
     this._keepCatOffPlayer();
     this._sortWorldEntities();
     this.hudPanel.setBarFraction(LoopManager.glitchLevel());
@@ -460,6 +465,9 @@ export class WorldScreenController extends ScreenController {
       this.actor.sprite,
       // Keep the cat in the exact same ground-Y depth ordering as the player.
       this.cat.sprite,
+      this.louisa.sprite,
+      this.soldier.sprite,
+      this.teacher.sprite,
       this.pcVisual,
       ...this.scrapPickups.map(({ visual }) => visual),
       ...this.droppedItems.flatMap(({ visual, icon, countLabel }) => [visual, icon, countLabel]),
@@ -868,6 +876,8 @@ export class WorldScreenController extends ScreenController {
     this.actor.sprite.destroy();
     this.cat.destroy();
     this.louisa.sprite.destroy();
+    this.soldier.sprite.destroy();
+    this.teacher.sprite.destroy();
     this.pc.destroy();
     this.pcVisual.destroy();
     for (const pickup of this.scrapPickups) {

@@ -3,6 +3,9 @@ import { CLIParser } from '../../engine/terminal/CLIParser.js';
 import { exampleFileSystem, EXAMPLE_TARGET_PASSWORD } from '../../engine/terminal/fakeFileSystem.example.js';
 import { LoopManager } from '../../engine/loop/LoopManager.js';
 import { InventoryManager } from '../../engine/inventory/InventoryManager.js';
+import { NetworkGraph } from '../../engine/network/NetworkGraph.js';
+import { NetworkStructRenderer } from '../../engine/network/NetworkStructRenderer.js';
+import { exampleNetworkNodes, exampleNetworkEdges } from '../../engine/network/exampleNetworkGraph.example.js';
 
 /** Id `LoopManager.addFragment` is recorded under for a successful crack. */
 const FRAGMENT_ID = 'terminal-root';
@@ -36,6 +39,7 @@ export class TerminalScreenController extends ScreenController {
 
     this.parser = new CLIParser(scene.events, exampleFileSystem, EXAMPLE_TARGET_PASSWORD);
     this._registerInventoryCommands(this.parser);
+    this._registerNetworkCommands(this.parser);
 
     // This screen's manifest lists `ui_windows: ["terminal_output"]`, so ScreenManager already
     // built it and stored the handle on `this.windows` before calling onEnter.
@@ -77,6 +81,16 @@ export class TerminalScreenController extends ScreenController {
    * @returns {void}
    */
   onInput(action, event) {
+    // The `netstruct` full-screen overlay (see `_registerNetworkCommands`) covers the whole
+    // terminal window, so while it's open every key is swallowed here EXCEPT Backspace (this
+    // screen's "text-entry" input profile maps BACKSPACE to 'text-backspace', not 'cancel' — see
+    // InputProfiles.js's own doc), which closes it and returns to the terminal exactly as it
+    // was — nothing below this `if` ever runs, so the CLI buffer/history is untouched.
+    if (this.netstructRenderer && this.netstructRenderer.isOpen) {
+      if (action === 'text-backspace') this.netstructRenderer.close();
+      return;
+    }
+
     if (action === 'text-char') {
       this.buffer += event.char;
       this._redrawPrompt();
@@ -195,8 +209,37 @@ export class TerminalScreenController extends ScreenController {
     }, 'load <item> [--slot=<n>] - retrieve an item the cat was hiding');
   }
 
+  /**
+   * Registers this game's `netstruct` command: a full-screen topology overlay drawn from
+   * `NetworkGraph`'s current nodes/edges (see that module's docstring, and
+   * `NetworkStructRenderer.js` for the actual drawing). Kept here rather than in `CLIParser`,
+   * same reasoning as `_registerInventoryCommands` — `CLIParser` stays pure/content-agnostic
+   * with no Phaser import, this is game-layer content wiring it in.
+   *
+   * ASSUMPTION: `NetworkGraph` is only seeded with `exampleNetworkGraph.example.js`'s starting
+   * content the FIRST time it's empty — not on every terminal re-entry — so nodes/edges a quest
+   * added at runtime via `NetworkGraph.addNode`/`addEdge` survive leaving and re-entering the
+   * terminal (see `NetworkGraph.js`'s own doc on that wiring).
+   * @param {CLIParser} parser
+   * @private
+   * @returns {void}
+   */
+  _registerNetworkCommands(parser) {
+    if (NetworkGraph.getNodes().length === 0) {
+      NetworkGraph.loadDefinitions({ nodes: exampleNetworkNodes, edges: exampleNetworkEdges });
+    }
+
+    this.netstructRenderer = new NetworkStructRenderer(this.engine.scene);
+
+    parser.registerCommand('netstruct', () => {
+      this.netstructRenderer.open(NetworkGraph);
+      return [];
+    }, 'netstruct - open a visual map of the currently known network (backspace to close)');
+  }
+
   /** @returns {void} */
   onExit() {
+    if (this.netstructRenderer) this.netstructRenderer.close();
     this.engine.scene.events.off('terminal:crack-success', this._onCrackSuccess);
     this.engine.scene.events.off('terminal:exit', this._onExitRequested);
   }

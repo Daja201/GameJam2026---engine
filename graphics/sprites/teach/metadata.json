@@ -1,0 +1,36 @@
+{
+  "group_id": "c1fa8cb2-4168-4594-84a2-fe815a22e483",
+  "states": [
+    {
+      "character": {
+        "id": "434e20db-450a-439b-9563-0ef26beec898",
+        "name": "Idle",
+        "prompt": "An ordinary-looking adult, dressed plainly and neatly \u2014 nothing stands out about them on purpose. They move and speak slowly, like someone who has said the same things many times and expects to say them many more. They don\u2019t raise their voice and don\u2019t need to; the system behind them does the threatening, not them personally. They watch more than they talk. When they do confront the player, it reads as routine paperwork, not anger \u2014 a box being checked, not a fight. They are not cruel. They are correct, and that\u2019s worse.  Visual direction: muted, institutional colors matching the School palette (beige/grey, pale fluorescent cast), nothing stylish or memorable. A single small red insignia (same sparing accent as the environment) is the only hint of rank.",
+        "size": {
+          "width": 32,
+          "height": 32
+        },
+        "template_id": "mannequin",
+        "directions": 8,
+        "view": "high top-down",
+        "created_at": "2026-10-27T13:08:05.050094+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-27T13:17:41.250832"
+}

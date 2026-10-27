@@ -1,0 +1,36 @@
+{
+  "group_id": "b51b5d16-7995-4a21-a873-7460cf61a867",
+  "states": [
+    {
+      "character": {
+        "id": "cd2b504b-3e72-45e6-97e2-c001e701c98e",
+        "name": "Idle",
+        "prompt": "Faceless on purpose \u2014 a helmet, visor, or shadowed features rather than an identifiable face. Built to look procedural rather than violent: equipment is tidy, movements are synchronized, nothing is improvised. They don\u2019t chase dramatically; they simply arrive, right on schedule, like the system always does. There\u2019s no cruelty in how they\u2019re written or drawn \u2014 they\u2019re doing a job, following a protocol, the same one every single time. This is what makes the reset land as dread rather than action-movie tension.  Visual direction: dark, uniform silhouette, no individual markings beyond the same small red insignia as the Teacher and the regime\u2019s signage \u2014 visually tying \u201cteacher,\u201d \u201csoldier,\u201d and \u201cthe system\u201d together as one thing wearing different clothes.",
+        "size": {
+          "width": 48,
+          "height": 48
+        },
+        "template_id": "mannequin",
+        "directions": 8,
+        "view": "high top-down",
+        "created_at": "2026-10-27T13:11:52.218006+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-27T13:17:53.486571"
+}
