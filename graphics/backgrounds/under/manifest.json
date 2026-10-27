@@ -1,0 +1,18 @@
+{
+  "id": "under",
+  "display_name": "Underground",
+  "type": "tilemap",
+  "layers": [],
+  "tilemap": {
+    "source": "under.tmj",
+    "tileset_image": "../../tileset/Cyberpunk_City_Tiles_Fences.png",
+    "additional_tilesets": [
+      {
+        "name": "props",
+        "image": "../../tileset/Cyberpunk_City_Props.png"
+      }
+    ],
+    "collision_layer": "under"
+  },
+  "ambient_tint": "#eef2ff"
+}

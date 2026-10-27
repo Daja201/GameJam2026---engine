@@ -93,7 +93,9 @@ class BootScene extends Phaser.Scene {
     // to know specific content ids, this bootstrap queues them directly from its own manifest
     // path list.
     for (const path of MANIFEST_PATHS.windows) {
-      const skinId = path.split('/').slice(-2, -1)[0];
+      const windowId = path.split('/').slice(-2, -1)[0];
+      const skinId = AssetRegistry.getWindowManifest(windowId).skin;
+      if (!skinId) continue;
       const key = `${skinId}:panel`;
       if (!this.textures.exists(key)) {
         this.load.image(key, `graphics/ui/windows/${skinId}/panel.png`);
@@ -207,6 +209,9 @@ class BootScene extends Phaser.Scene {
             QuestManager.assignQuest(questId);
           }
         }
+        engine.showPhaseWindow(
+          'You have woke up. Follow your minimap to get to elevator and to work'
+        );
       });
     });
     registerAction('menu-settings', () => {

@@ -25,6 +25,7 @@ export const MANIFEST_PATHS = {
   backgrounds: [
     'graphics/backgrounds/example_room/manifest.json',
     'graphics/backgrounds/city/manifest.json',
+    'graphics/backgrounds/under/manifest.json',
   ],
   screens: [
     'screens/menu/manifest.json',
@@ -34,6 +35,7 @@ export const MANIFEST_PATHS = {
     'screens/settings_modal/manifest.json',
     'screens/quest_log/manifest.json',
     'screens/inventory/manifest.json',
+    'screens/phase_story/manifest.json',
   ],
   // NOTE: 'terminal_output' and 'quest_log_panel' are this bootstrap's own additions (not in the
   // original module file lists) — the Terminal and Quest Log screens' `ui_windows` each need a
@@ -45,5 +47,6 @@ export const MANIFEST_PATHS = {
     'graphics/ui/windows/terminal_output/manifest.json',
     'graphics/ui/windows/quest_log_panel/manifest.json',
     'graphics/ui/windows/inventory_panel/manifest.json',
+    'graphics/ui/windows/phase_story/manifest.json',
   ],
 };

@@ -1,0 +1,10 @@
+{
+  "id": "phase_story",
+  "display_name": "Story",
+  "controller": "PhaseStoryScreenController",
+  "input_profile": "menu-nav",
+  "background": null,
+  "ui_windows": ["phase_story"],
+  "transition_in": "instant",
+  "transition_out": "instant"
+}

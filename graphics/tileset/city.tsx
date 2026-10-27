@@ -254,6 +254,9 @@
    <object id="1" x="0.543279" y="25.5341">
     <polygon points="0,0 31.5102,-0.271639 31.5102,5.70443 0,5.70443"/>
    </object>
+   <object id="2" x="-0.543279" y="30.9669">
+    <polygon points="0,0 0.407459,-30.9669 7.06263,-30.9669 7.47009,0.271639"/>
+   </object>
   </objectgroup>
  </tile>
  <tile id="131">
@@ -267,6 +270,9 @@
   <objectgroup draworder="index" id="2">
    <object id="1" x="0.13582" y="25.6699">
     <polygon points="0,0 31.5102,-0.271639 31.5102,5.70443 0,5.70443"/>
+   </object>
+   <object id="2" x="25.9416" y="30.5594">
+    <polygon points="0,0 0,-31.5102 5.84025,-30.9669 6.38353,-0.543279"/>
    </object>
   </objectgroup>
  </tile>

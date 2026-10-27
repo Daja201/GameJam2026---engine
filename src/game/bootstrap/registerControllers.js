@@ -6,6 +6,7 @@ import { TerminalScreenController } from '../controllers/TerminalScreenControlle
 import { SettingsModalController } from '../controllers/SettingsModalController.js';
 import { QuestLogScreenController } from '../controllers/QuestLogScreenController.js';
 import { InventoryScreenController } from '../controllers/InventoryScreenController.js';
+import { PhaseStoryScreenController } from '../controllers/PhaseStoryScreenController.js';
 
 /**
  * Registers every example-content screen controller under the name its screen manifest's
@@ -20,4 +21,5 @@ export function registerAllControllers() {
   registerController('SettingsModalController', SettingsModalController);
   registerController('QuestLogScreenController', QuestLogScreenController);
   registerController('InventoryScreenController', InventoryScreenController);
+  registerController('PhaseStoryScreenController', PhaseStoryScreenController);
 }

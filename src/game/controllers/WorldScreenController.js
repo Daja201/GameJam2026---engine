@@ -15,6 +15,7 @@ import { createToastNotifier } from '../../engine/ui/ToastNotifier.js';
 import { animKey } from '../../engine/sprites/AnimationFactory.js';
 import { createHudPanel } from '../ui/HudPanel.js';
 import { createMapOverlay } from '../../engine/world/MapOverlay.js';
+import { BackgroundLoader } from '../../engine/world/BackgroundLoader.js';
 
 /** Toast accent colors by quest-event category — kept here (content), not in ToastNotifier (generic). */
 const TOAST_ACCENT_STARTED = 0x8aa8ff;
@@ -32,6 +33,9 @@ const PICKUP_RADIUS = 20;
 /** How close the cat must be to the player's punching hand for a fight-mode hit to land on it. */
 const CAT_HIT_RADIUS = 20;
 const WORLD_Y_SORT_DEPTH_RANGE = DEPTH.WORLD_FOREGROUND - DEPTH.WORLD_ENTITIES - 1;
+const CITY_PORTAL_TILE = { x: 3, y: 0 };
+const UNDER_ARRIVAL_TILE = { x: 0, y: 7 };
+const PORTAL_FADE_MS = 500;
 
 /**
  * Quest content for this room (THIS controller's own example content — the quest engine,
@@ -112,6 +116,13 @@ export class WorldScreenController extends ScreenController {
     // image with no real edges and nothing to collide with. `getMapSize()`/`getCollisionLayer()`
     // are no-ops (return null) for non-tilemap backgrounds, so this stays harmless if a future
     // screen swaps back to a static/parallax background.
+    this._originalBackground = this.background;
+    this._backgroundChanged = false;
+    this._mapColliders = [];
+    this._cityPortalLocked = false;
+    this._underExitArmed = false;
+    this.isTransitioning = false;
+    this._currentArea = 'city';
     const mapSize = this.background?.getMapSize?.();
     const tileSize = this.background?.getTileSize?.();
     this.mapSize = mapSize ?? null;
@@ -129,13 +140,15 @@ export class WorldScreenController extends ScreenController {
     const collisionLayer = this.background?.getCollisionLayer?.();
     const partialHitboxGroup = this.background?.getPartialHitboxGroup?.();
     if (collisionLayer) {
-      scene.physics.add.collider(this.actor.sprite, collisionLayer);
+      this._mapColliders.push(scene.physics.add.collider(this.actor.sprite, collisionLayer));
       // Partial (smaller-than-a-full-tile) hitboxes: rectangles drawn per-tile in Tiled's own
       // "Tile Collision Editor" — see BackgroundLoader.js's PARTIAL HITBOXES comment for how
       // these get built. Independent of the full-tile `collides` collider just above; a tile can
       // use either, both, or neither mechanic. Null (nothing collided against) when no placed
       // tile has a drawn collision shape, so this stays a no-op until you actually use one.
-      if (partialHitboxGroup) scene.physics.add.collider(this.actor.sprite, partialHitboxGroup);
+      if (partialHitboxGroup) {
+        this._mapColliders.push(scene.physics.add.collider(this.actor.sprite, partialHitboxGroup));
+      }
     }
 
     // Hitbox debug overlay (Settings > "Show Hitboxes (debug)"): draws a red rectangle around
@@ -177,8 +190,12 @@ export class WorldScreenController extends ScreenController {
       obstacleGroup: partialHitboxGroup,
     });
     this.cat.sprite.setCollideWorldBounds(Boolean(mapSize));
-    if (collisionLayer) scene.physics.add.collider(this.cat.sprite, collisionLayer);
-    if (partialHitboxGroup) scene.physics.add.collider(this.cat.sprite, partialHitboxGroup);
+    if (collisionLayer) {
+      this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, collisionLayer));
+    }
+    if (partialHitboxGroup) {
+      this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, partialHitboxGroup));
+    }
     this.louisa = new Actor(scene, 'louisa', spawnX + 120, spawnY);
     this.soldier = new Actor(scene, 'soldier', spawnX + 200, spawnY + 40);
     this.teacher = new Actor(scene, 'teach', spawnX - 120, spawnY + 40);
@@ -316,17 +333,7 @@ export class WorldScreenController extends ScreenController {
     // background (getMapSize() is null otherwise) — a static/parallax room has no real map to
     // show. Every screen-fixed HUD element built above must be passed in `ignore`, or it would
     // also render tiny inside the map cameras.
-    this.mapOverlay = this.mapSize
-      ? createMapOverlay(scene, {
-        follow: this.actor.sprite,
-        mapSize: this.mapSize,
-        ignore: [
-          ...this.hudPanel.getDisplayObjects(),
-          this.modeLabel,
-          this.toasts.root,
-        ],
-      })
-      : null;
+    this.mapOverlay = this._createMapOverlay();
 
     // Punching: true only while E is physically held down in FIGHT mode.
     this.isPunching = false;
@@ -364,6 +371,7 @@ export class WorldScreenController extends ScreenController {
    */
   onUpdate(time, delta) {
     const { scene } = this.engine;
+    if (this.isTransitioning) return;
 
     // Full map open: feet planted (same reasoning as mid-punch) so the player doesn't wander
     // off-screen while looking at the map; everything else (HUD, quest tracking, fx) keeps going.
@@ -384,6 +392,8 @@ export class WorldScreenController extends ScreenController {
     this.teacher.update(time, delta);
     this._keepCatOffPlayer();
     this._sortWorldEntities();
+    this._checkPortalTransition();
+    if (this.isTransitioning) return;
 
     // In fight mode E punches rather than interacts, so the "[E] interact" prompt would be
     // misleading there — only show it in normal mode.
@@ -407,6 +417,166 @@ export class WorldScreenController extends ScreenController {
     if (level > 0 && Math.random() < 0.002 * level) {
       FxManager.shake(scene, 0.002 + 0.006 * level, 120);
     }
+  }
+
+  /**
+   * Builds the map cameras for the currently active background.
+   * @private
+   * @returns {ReturnType<typeof createMapOverlay>|null}
+   */
+  _createMapOverlay() {
+    if (!this.mapSize) return null;
+    return createMapOverlay(this.engine.scene, {
+      follow: this.actor.sprite,
+      mapSize: this.mapSize,
+      ignore: [
+        ...this.hudPanel.getDisplayObjects(),
+        this.modeLabel,
+        this.toasts.root,
+      ],
+    });
+  }
+
+  /**
+   * Starts the two-way city/underground transition when the player reaches a portal edge.
+   * @private
+   * @returns {void}
+   */
+  _checkPortalTransition() {
+    const tileSize = this.background?.getTileSize?.();
+    const body = this.actor.sprite.body;
+    if (!tileSize || !body) return;
+
+    if (this._currentArea === 'city') {
+      const tileX = Math.floor(body.center.x / tileSize.width);
+      const tileY = Math.floor(body.center.y / tileSize.height);
+      const atCityPortal = tileX === CITY_PORTAL_TILE.x && tileY === CITY_PORTAL_TILE.y;
+      if (!atCityPortal) this._cityPortalLocked = false;
+      else if (!this._cityPortalLocked) this._transitionToArea('under');
+      return;
+    }
+
+    if (this._currentArea !== 'under') return;
+    if (body.center.x >= tileSize.width * 1.5) this._underExitArmed = true;
+    if (this._underExitArmed && body.left <= 2) this._transitionToArea('city');
+  }
+
+  /**
+   * Fades the whole scene to black, replaces the tilemap and collision world, then fades back in.
+   * @private
+   * @param {'city'|'under'} area
+   * @returns {void}
+   */
+  _transitionToArea(area) {
+    if (this.isTransitioning) return;
+    const { scene } = this.engine;
+    this.isTransitioning = true;
+    this.actor.sprite.body.setVelocity(0, 0);
+    this.cat.sprite.body.setVelocity(0, 0);
+    this.actor.playState('idle');
+
+    const overlay = scene.add.rectangle(
+      INTERNAL_WIDTH / 2,
+      INTERNAL_HEIGHT / 2,
+      INTERNAL_WIDTH + 2,
+      INTERNAL_HEIGHT + 2,
+      0x000000,
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY).setAlpha(0);
+    this._portalTransitionOverlay = overlay;
+    scene.tweens.add({
+      targets: overlay,
+      alpha: 1,
+      duration: PORTAL_FADE_MS,
+      onComplete: () => {
+        try {
+          this._replaceBackground(area);
+          const tileSize = this.background.getTileSize();
+          const destination = area === 'under' ? UNDER_ARRIVAL_TILE : CITY_PORTAL_TILE;
+          const x = (destination.x + 0.5) * tileSize.width;
+          const y = (destination.y + 0.5) * tileSize.height;
+          this.actor.sprite.setPosition(x, y);
+          this.actor.sprite.body.reset(x, y);
+          this.actor.sprite.body.setVelocity(0, 0);
+
+          const catX = Math.min(this.mapSize.width - 1, x + 24);
+          const catY = Math.min(this.mapSize.height - 1, y + 10);
+          this.cat.teleport(catX, catY);
+          this._cityPortalLocked = area === 'city';
+          this._underExitArmed = false;
+        } catch (error) {
+          overlay.destroy();
+          this._portalTransitionOverlay = null;
+          this.isTransitioning = false;
+          throw error;
+        }
+
+        scene.tweens.add({
+          targets: overlay,
+          alpha: 0,
+          duration: PORTAL_FADE_MS,
+          onComplete: () => {
+            overlay.destroy();
+            this._portalTransitionOverlay = null;
+            this.isTransitioning = false;
+          },
+        });
+      },
+    });
+  }
+
+  /**
+   * Replaces the active background and refreshes all map-bound world systems.
+   * @private
+   * @param {'city'|'under'} area
+   * @returns {void}
+   */
+  _replaceBackground(area) {
+    const { scene } = this.engine;
+    const nextBackground = BackgroundLoader.build(scene, area);
+    for (const collider of this._mapColliders) scene.physics.world.removeCollider(collider);
+    this._mapColliders.length = 0;
+
+    this.mapOverlay?.destroy();
+    this.mapOverlay = null;
+    const previousBackground = this.background;
+    this.background = nextBackground;
+    previousBackground?.destroy();
+    this._backgroundChanged = this.background !== this._originalBackground;
+    this._currentArea = area;
+
+    this.mapSize = this.background.getMapSize();
+    const collisionLayer = this.background.getCollisionLayer();
+    const partialHitboxGroup = this.background.getPartialHitboxGroup();
+    if (this.mapSize) {
+      scene.physics.world.setBounds(0, 0, this.mapSize.width, this.mapSize.height);
+      scene.cameras.main.setBounds(0, 0, this.mapSize.width, this.mapSize.height);
+    }
+
+    if (collisionLayer) {
+      this._mapColliders.push(scene.physics.add.collider(this.actor.sprite, collisionLayer));
+      this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, collisionLayer));
+    }
+    if (partialHitboxGroup) {
+      this._mapColliders.push(scene.physics.add.collider(this.actor.sprite, partialHitboxGroup));
+      this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, partialHitboxGroup));
+    }
+    this.actor.sprite.setCollideWorldBounds(Boolean(this.mapSize));
+    this.cat.sprite.setCollideWorldBounds(Boolean(this.mapSize));
+    this.cat.setNavigationMap(collisionLayer, partialHitboxGroup);
+
+    this._tileDebugGraphic?.destroy();
+    this._tileDebugGraphic = collisionLayer
+      ? scene.add.graphics().setDepth(DEPTH.WORLD_FOREGROUND)
+      : null;
+    if (collisionLayer) {
+      collisionLayer.renderDebug(this._tileDebugGraphic, {
+        tileColor: null,
+        collidingTileColor: { color: 0xff0000, alpha: 120 },
+        faceColor: null,
+      });
+    }
+    this._tileDebugGraphic?.setVisible(SettingsStore.get('video.hitboxDebug'));
+    this.mapOverlay = this._createMapOverlay();
   }
 
   /**
@@ -737,6 +907,7 @@ export class WorldScreenController extends ScreenController {
    * @returns {void}
    */
   onInput(action, event) {
+    if (this.isTransitioning) return;
     if (action === 'toggle-map') {
       this.mapOverlay?.toggleFull();
     } else if (action === 'toggle-mode') {
@@ -809,6 +980,16 @@ export class WorldScreenController extends ScreenController {
   onExit() {
     AudioManager.stopMusic();
     if (this.engine.worldController === this) this.engine.worldController = null;
+    if (this._portalTransitionOverlay) {
+      this.engine.scene.tweens.killTweensOf(this._portalTransitionOverlay);
+      this._portalTransitionOverlay.destroy();
+      this._portalTransitionOverlay = null;
+    }
+    this._portalTransitionTimer?.remove(false);
+    for (const collider of this._mapColliders) {
+      this.engine.scene.physics.world.removeCollider(collider);
+    }
+    if (this._backgroundChanged) this.background?.destroy();
     this._unsubscribeHitboxDebug?.();
     this.engine.scene.physics.world.drawDebug = false; // stop postUpdate from touching the graphic we're about to destroy
     this._physicsDebugGraphic.destroy();

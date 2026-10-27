@@ -1,12 +1,10 @@
 {
-    "activeFile": "graphics/backgrounds/city/city.json",
+    "activeFile": "graphics/backgrounds/city/props.tsx",
     "expandedProjectPaths": [
-        "graphics/backgrounds/example_room",
         ".",
         "graphics/tileset",
-        "graphics/backgrounds",
-        "graphics/backgrounds/city",
-        "graphics"
+        "graphics",
+        "graphics/backgrounds"
     ],
     "file.lastUsedOpenFilter": "All Files (*)",
     "fileStates": {
@@ -21,17 +19,24 @@
             "scaleInDock": 1,
             "scaleInEditor": 1
         },
+        "graphics/backgrounds/city/assets.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 0.99
+        },
         "graphics/backgrounds/city/city.json": {
-            "scale": 0.8163,
+            "scale": 0.8046,
             "selectedLayer": 0,
             "viewCenter": {
-                "x": 251.7456817346564,
-                "y": 363.22430478990566
+                "x": 317.54909271687796,
+                "y": 332.4633358190405
             }
         },
         "graphics/backgrounds/city/city.json#CityTileset": {
             "scaleInDock": 1,
             "scaleInEditor": 1
+        },
+        "graphics/backgrounds/city/city.json#assets": {
+            "scaleInDock": 1
         },
         "graphics/backgrounds/city/city.json#city": {
             "scaleInDock": 1
@@ -41,30 +46,41 @@
         },
         "graphics/backgrounds/city/props.tsx": {
             "scaleInDock": 1,
-            "scaleInEditor": 1
+            "scaleInEditor": 0.99
+        },
+        "graphics/backgrounds/under/under.tmj": {
+            "scale": 1.09,
+            "selectedLayer": 1,
+            "viewCenter": {
+                "x": 546.3302752293578,
+                "y": 191.28440366972475
+            }
         },
         "graphics/tileset/city.tsx": {
             "scaleInDock": 1,
-            "scaleInEditor": 0.9919
+            "scaleInEditor": 0.8732
         }
     },
     "last.exportedFilePath": "/Users/dejv/Git/GameJam2026---engine/graphics/backgrounds/city",
     "last.imagePath": "/Users/dejv/Git/GameJam2026---engine/graphics/tileset",
     "map.fixedSize": true,
-    "map.height": 30,
+    "map.height": 15,
     "map.lastUsedExportFilter": "All Files (*)",
     "map.lastUsedFormat": "json",
+    "map.width": 15,
     "openFiles": [
         "graphics/tileset/city.tsx",
         "graphics/backgrounds/city/props.tsx",
+        "graphics/backgrounds/city/assets.tsx",
         "graphics/backgrounds/city/city.json"
     ],
     "project": "Gayjam26.tiled-project",
     "property.type": "bool",
     "recentFiles": [
-        "graphics/backgrounds/city/city.json",
-        "graphics/tileset/city.tsx",
+        "graphics/backgrounds/city/assets.tsx",
         "graphics/backgrounds/city/props.tsx",
+        "graphics/tileset/city.tsx",
+        "graphics/backgrounds/city/city.json",
         "graphics/backgrounds/city/CityTileset.tsx",
         "CityTiles.tsx"
     ],

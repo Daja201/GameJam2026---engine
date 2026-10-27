@@ -33,6 +33,7 @@
  * @property {typeof import('../engine/settings/SettingsStore.js').SettingsStore} settingsStore
  * @property {typeof import('../engine/audio/AudioManager.js').AudioManager} audioManager
  * @property {import('../engine/screens/ScreenManager.js').ScreenManager} screenManager
+ * @property {(text: string) => Promise<void>} showPhaseWindow
  */
 
 /**
@@ -44,7 +45,7 @@
  * @returns {EngineContext}
  */
 export function buildEngineContext(scene, systems) {
-  return {
+  const engine = {
     scene,
     assetRegistry: systems.assetRegistry,
     inputRouter: systems.inputRouter,
@@ -52,5 +53,12 @@ export function buildEngineContext(scene, systems) {
     settingsStore: systems.settingsStore,
     audioManager: systems.audioManager,
     screenManager: systems.screenManager,
+    showPhaseWindow: (text) => {
+      if (typeof text !== 'string' || text.trim().length === 0) {
+        throw new TypeError('showPhaseWindow requires non-empty story text');
+      }
+      return engine.screenManager.push('phase_story', { text });
+    },
   };
+  return engine;
 }

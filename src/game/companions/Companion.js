@@ -247,6 +247,35 @@ export class Companion {
     return null;
   }
 
+  /**
+   * Rebuilds the navigation grid after the leader changes maps.
+   * @param {Phaser.Tilemaps.TilemapLayer|null} collisionLayer
+   * @param {Phaser.Physics.Arcade.StaticGroup|null} obstacleGroup
+   * @returns {void}
+   */
+  setNavigationMap(collisionLayer, obstacleGroup) {
+    this._pathGrid = this._buildPathGrid(collisionLayer, obstacleGroup);
+    this._path = [];
+    this._pathTarget = null;
+    this._pathReachable = false;
+    this._pathRefreshMs = 0;
+  }
+
+  /**
+   * Moves the companion to the new map and clears stale follow-path state.
+   * @param {number} x
+   * @param {number} y
+   * @returns {void}
+   */
+  teleport(x, y) {
+    this.sprite.setPosition(x, y);
+    this.sprite.body.reset(x, y);
+    this.sprite.body.setVelocity(0, 0);
+    this._trail = [{ x: this.leaderSprite.x, y: this.leaderSprite.y }];
+    this._sinceLastSample = 0;
+    this._idleMs = 0;
+  }
+
   _refreshPath(target) {
     const start = this._tilePositionAt(this.sprite.body.center.x, this.sprite.body.center.y);
     const destination = this._nearestWalkable(this._tilePositionAt(target.x, target.y));
