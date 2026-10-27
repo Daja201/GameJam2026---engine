@@ -48,6 +48,14 @@
             "scaleInDock": 1,
             "scaleInEditor": 0.99
         },
+        "graphics/backgrounds/city/under.json": {
+            "scale": 0.706,
+            "selectedLayer": 2,
+            "viewCenter": {
+                "x": 458.21529745042494,
+                "y": 214.5892351274788
+            }
+        },
         "graphics/backgrounds/under/under.tmj": {
             "scale": 1.09,
             "selectedLayer": 1,

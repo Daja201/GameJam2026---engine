@@ -425,6 +425,10 @@ class QuestManagerImpl {
     if (incrementBy <= 0) return;
     const state = this._state.get(questId);
     if (!state || state.status !== 'active') return;
+    const definition = this._definitions.get(questId);
+    if (!definition) {
+      throw new Error(`QuestManager._progressObjective: missing definition for active quest "${questId}"`);
+    }
     const progress = state.objectives.get(objectiveId);
     if (!progress || progress.done) return;
 

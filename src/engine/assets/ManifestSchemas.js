@@ -180,6 +180,8 @@ export const BACKGROUND_MANIFEST_SCHEMA = {
           },
         },
         y_sorted_layers: { type: 'array', items: { type: 'string', minLength: 1 } },
+        foreground_layers: { type: 'array', items: { type: 'string', minLength: 1 } },
+        scroll_factors: { type: 'object', values: { type: 'number', min: 0 } },
         collision_layer: { type: 'string', minLength: 1 },
       },
     },

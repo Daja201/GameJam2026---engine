@@ -417,7 +417,9 @@ export const BackgroundLoader = {
           const tileLayer = tilemap.createLayer(layerData.name, tilesets, 0, 0);
           if (!tileLayer) continue;
           const isYSortedLayer = cfg.y_sorted_layers?.includes(layerData.name);
-          tileLayer.setDepth(DEPTH.WORLD_GROUND);
+          const isForegroundLayer = cfg.foreground_layers?.includes(layerData.name);
+          tileLayer.setDepth(isForegroundLayer ? DEPTH.WORLD_FOREGROUND + 1 : DEPTH.WORLD_GROUND);
+          tileLayer.setScrollFactor(cfg.scroll_factors?.[layerData.name] ?? 1);
           tintables.push(tileLayer);
           if (isYSortedLayer) {
             const layerOrder = cfg.y_sorted_layers.indexOf(layerData.name);
