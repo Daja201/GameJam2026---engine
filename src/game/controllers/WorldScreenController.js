@@ -42,16 +42,18 @@ const WORLD_Y_SORT_DEPTH_RANGE = DEPTH.WORLD_FOREGROUND - DEPTH.WORLD_ENTITIES -
 const WORLD_PC_INTERACT_ID = 'world_pc';
 const SCRAP_ITEM_ID = 'scrap_metal';
 
-// FIX (city map): the `world` screen's background is now `graphics/backgrounds/city` (a large
-// generated tilemap, see that folder's manifest.json), not the old single-room static image, so
-// spawning at INTERNAL_WIDTH/2 x INTERNAL_HEIGHT/2 (the room's center) no longer makes sense — on
-// a 3904x2304px map that point is wherever a random building or street happens to fall, not
-// guaranteed walkable. SPAWN_X/SPAWN_Y below is the pixel-center of that map's one "plaza" block
-// (graphics/backgrounds/city/gen_map.py's PLAZA_BLOCK), the single spot deliberately generated
-// as open grass with no `collides` tiles, so the player, cat, PC prop, and scrap pickups all land
-// somewhere guaranteed walkable regardless of how the surrounding city blocks were laid out.
-const SPAWN_X = 2160;
-const SPAWN_Y = 1168;
+// FIX (city map): the `world` screen's background is `graphics/backgrounds/city` (a Tiled map,
+// see that folder's city.json/manifest.json), so spawning at INTERNAL_WIDTH/2 x INTERNAL_HEIGHT/2
+// (the old single-room static image's center) no longer makes sense — that point has nothing to
+// do with this map's own size. SPAWN_X/SPAWN_Y below is this map's actual pixel-center (currently
+// a 30x30 tile map at 32px/tile = 960x960px, so 480,480) rather than a value baked in from a
+// previous, differently-sized map. IMPORTANT: if `city.json` is ever resized again in Tiled, this
+// must be updated to match (half of the new width/height in pixels) — a stale value here spawns
+// the player, cat, PC prop and scrap pickups outside `scene.physics.world.setBounds(...)` (set
+// from `getMapSize()` a few lines below in `onEnter`), which looks like "the character can't
+// move" (it's actually just stuck off-screen, past where the camera's bounds let it scroll to).
+const SPAWN_X = 480;
+const SPAWN_Y = 480;
 
 const SCRAP_SPAWN_POINTS = [
   { x: SPAWN_X - 60, y: SPAWN_Y - 40 },
@@ -139,6 +141,13 @@ export class WorldScreenController extends ScreenController {
     const collisionLayer = this.background?.getCollisionLayer?.();
     if (collisionLayer) {
       scene.physics.add.collider(this.actor.sprite, collisionLayer);
+      // Partial (smaller-than-a-full-tile) hitboxes: rectangles drawn per-tile in Tiled's own
+      // "Tile Collision Editor" — see BackgroundLoader.js's PARTIAL HITBOXES comment for how
+      // these get built. Independent of the full-tile `collides` collider just above; a tile can
+      // use either, both, or neither mechanic. Null (nothing collided against) when no placed
+      // tile has a drawn collision shape, so this stays a no-op until you actually use one.
+      const partialHitboxGroup = this.background?.getPartialHitboxGroup?.();
+      if (partialHitboxGroup) scene.physics.add.collider(this.actor.sprite, partialHitboxGroup);
       // NOTE: the cat companion is deliberately NOT given a collider here — it moves by directly
       // setting sprite.x/y each frame (Companion.js), not via arcade velocity/acceleration, so a
       // collider would only ever stop it dead against a wall rather than let it path around one.

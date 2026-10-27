@@ -73,6 +73,8 @@ export const BackgroundLoader = {
     const tintables = [];
     let tilemap = null;
     let collisionLayer = null;
+    /** @type {Phaser.Physics.Arcade.StaticGroup|null} see 'tilemap' case's PARTIAL HITBOXES note below */
+    let partialHitboxGroup = null;
     let destroyed = false;
 
     switch (manifest.type) {
@@ -115,8 +117,50 @@ export const BackgroundLoader = {
           tintables.push(tileLayer);
           if (cfg.collision_layer && layerData.name === cfg.collision_layer) {
             // Standard Tiled convention: tiles tagged with a boolean custom property `collides`.
+            // This is a FULL-TILE, on/off solid — the whole 32x32 square or nothing. See the
+            // PARTIAL HITBOXES block right below for anything smaller/offset (a fence post, a
+            // half-wall, a corner you can cut).
             tileLayer.setCollisionByProperty({ collides: true });
             collisionLayer = tileLayer;
+
+            // PARTIAL HITBOXES: Arcade Physics (what this whole engine uses — see
+            // `scene.physics.add.sprite` in Actor.js) only ever collides a tile as ONE rectangle
+            // the size of the full tile; it has no notion of a smaller/offset shape within a
+            // tile. To still get that (a thin fence, a wall you can cut the corner of, etc.),
+            // this reads whatever rectangle(s) were drawn in TILED'S OWN "Tile Collision Editor"
+            // for each tile actually placed on this layer (right-click a tile in the Tilesets
+            // panel -> "Edit Collision Shapes" / the hammer-and-tools icon; draw one or more
+            // rectangles anywhere within the tile, any size/position, then save) — Phaser already
+            // parses these into `tileset.getTileData(tile.index).objectgroup.objects` for free
+            // (see Tileset.js), this just turns each one into its own small static Arcade body at
+            // the tile's exact map position. This is INDEPENDENT of the `collides` property above:
+            // a tile can have one, the other, both, or neither. A tile with only a drawn rectangle
+            // and no `collides` property is NOT marked solid by `setCollisionByProperty` above, so
+            // the two mechanics never fight over the same tile.
+            partialHitboxGroup = scene.physics.add.staticGroup();
+            tileLayer.forEachTile((tile) => {
+              if (tile.index < 0) return; // empty cell
+              const shapes = tileset.getTileData(tile.index)?.objectgroup?.objects;
+              if (!shapes || !shapes.length) return;
+              for (const shape of shapes) {
+                // Tiled gives rectangle shapes as top-left x/y + width/height, in the TILE's own
+                // local pixel space (0,0 = tile's top-left corner); Arcade static bodies are
+                // centered on their GameObject's x/y, hence the +width/2,+height/2 below.
+                if (shape.width == null || shape.height == null) continue; // skip non-rectangle shapes (polygons/ellipses/points) — not supported here
+                const body = scene.add.rectangle(
+                  tile.pixelX + shape.x + shape.width / 2,
+                  tile.pixelY + shape.y + shape.height / 2,
+                  shape.width,
+                  shape.height,
+                ).setVisible(false);
+                scene.physics.add.existing(body, /* isStatic */ true);
+                partialHitboxGroup.add(body);
+              }
+            });
+            if (partialHitboxGroup.countActive(true) === 0) {
+              partialHitboxGroup.destroy();
+              partialHitboxGroup = null; // nothing drawn in Tiled's collision editor — fine, optional
+            }
           }
         }
         if (cfg.collision_layer && !collisionLayer) {
@@ -161,11 +205,24 @@ export const BackgroundLoader = {
         destroyed = true;
         displayObjects.forEach((obj) => obj.destroy());
         if (tilemap) tilemap.destroy(); // also destroys the tile layers it created
+        if (partialHitboxGroup) partialHitboxGroup.destroy(true); // true = also destroy its child rectangles
         tintables.length = 0;
         collisionLayer = null;
+        partialHitboxGroup = null;
       },
       getCollisionLayer() {
         return manifest.type === 'tilemap' ? collisionLayer : null;
+      },
+      /**
+       * @returns {Phaser.Physics.Arcade.StaticGroup|null} the per-tile custom-rectangle hitboxes
+       *   described in the 'tilemap' case's PARTIAL HITBOXES comment above, or null for a
+       *   non-tilemap background or a tilemap whose tiles have no Tiled-drawn collision shapes.
+       *   Collide the player against this THE SAME WAY as `getCollisionLayer()` — e.g.
+       *   `scene.physics.add.collider(this.actor.sprite, background.getPartialHitboxGroup())` —
+       *   it's just a second, independent thing to collide against, not a replacement.
+       */
+      getPartialHitboxGroup() {
+        return manifest.type === 'tilemap' ? partialHitboxGroup : null;
       },
       getMapSize() {
         if (manifest.type !== 'tilemap' || !tilemap) return null;
