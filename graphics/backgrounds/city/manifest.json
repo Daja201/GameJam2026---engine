@@ -16,7 +16,7 @@
         "image": "../../tileset/Cyberpunk_City_Doors_Windows_Signs.png"
       }
     ],
-    "y_sorted_layers": ["city overlay"],
+    "y_sorted_layers": ["ymanaged"],
     "collision_layer": "city"
   },
   "ambient_tint": "#eef2ff"

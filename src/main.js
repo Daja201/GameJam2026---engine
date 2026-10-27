@@ -51,8 +51,8 @@ class BootScene extends Phaser.Scene {
     // not-yet-authored sprite/background/window-skin PNG — see PreloadQueueBuilder.js's own
     // "a missing PNG just triggers Phaser's normal loaderror" note) now instead gets a flat,
     // solid-color placeholder generated right here, in this project's one recurring accent color
-    // (teal/cyan-green, `#35e0a8` — the same color HudPanel's bar fill, MapOverlay's ring border,
-    // and WindowFactory's new scrollbar all already use) rather than a generic gray or Phaser's
+    // (teal/cyan-green, `#35e0a8` — the same color MapOverlay's ring border and WindowFactory's
+    // new scrollbar use) rather than a generic gray or Phaser's
     // magenta. One listener, attached before any `scene.load.image(...)` call anywhere in this
     // bootstrap (AssetRegistry.scan, PreloadQueueBuilder, the window-skin/HUD loads further down
     // in create()) runs through this same `this.load`, so this single early registration covers
@@ -101,8 +101,7 @@ class BootScene extends Phaser.Scene {
     }
 
     // HUD panel art (module 11 addition): not part of any manifest-driven system (sprites,
-    // backgrounds, windows) — it's a handful of fixed, always-on HUD images (portrait and status
-    // bar), so it's simplest to just queue them directly here, the same way the
+    // backgrounds, windows) — fixed HUD images are queued directly here, the same way the
     // window-skin panel textures above are queued directly rather than going through
     // AssetRegistry. See src/game/ui/HudPanel.js for the keys used.
     // FIX (map button removed): 'hud:map' (the old clickable Map button face) is no longer loaded
@@ -110,7 +109,6 @@ class BootScene extends Phaser.Scene {
     // no button image at all. 'hud:quit' was already unused (left loaded harmlessly before this
     // revision); both are dropped now that nothing in this column is a clickable image anymore.
     this.load.image('hud:portrait', 'graphics/ui/hud/portrait.png');
-    this.load.image('hud:bar', 'graphics/ui/hud/bar.png');
 
     // SFX: the cat's reaction sound when the player's fight-mode punch lands on it (see
     // WorldScreenController's '_onAttackAnimationComplete' -> cat-hit check). Not manifest-driven

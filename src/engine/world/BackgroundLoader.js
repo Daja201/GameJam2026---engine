@@ -47,44 +47,86 @@ function resolveLayerDepth(depth) {
 }
 
 /**
- * Draws a tile layer as individual images so each tile can depth-sort against world entities.
+ * Resolves the pixel-Y (relative to the tile's own top edge, pre-flip) of a tile's
+ * "ground contact" point, used instead of the raw 32px cell bottom when y-sorting.
+ *
+ * Many prop tiles don't touch the bottom of their grid cell with their actual artwork (a
+ * lamp base, a can, a sign) — using the raw cell height as the sort anchor shifts the
+ * behind/in-front threshold by however many pixels of padding/shadow sit below the art.
+ * Tiled authors already mark this per-tile via an `objectgroup` object (a rectangle whose
+ * bottom edge is the true contact line, or a bare point object placed exactly on it) — the
+ * same data this file already reads for collision shapes (see the "Partial tile shapes"
+ * block below). If a tile has no such shape, fall back to the full cell height so untouched
+ * tiles keep their previous behavior.
+ * @param {Phaser.Tilemaps.Tile} tile
+ * @returns {number}
+ */
+function getTileContactY(tile) {
+  const tileset = tile.tileset;
+  const fullHeight = tileset.tileHeight;
+  const shapes = tileset.getTileData(tile.index)?.objectgroup?.objects;
+  if (!shapes || !shapes.length) return fullHeight;
+
+  // Prefer a shape explicitly named "anchor"/"contact" if one exists; otherwise the first
+  // shape on the tile (matches the convention already used for collision shapes elsewhere
+  // in this file, which also just takes whatever shapes are present).
+  const named = shapes.find((shape) => /anchor|contact/i.test(shape.name || ''));
+  const shape = named || shapes[0];
+  // A point object has no height: its own y IS the contact line. A rectangle/polygon's
+  // contact line is its bottom edge.
+  const contactY = shape.height ? shape.y + shape.height : shape.y;
+
+  // A vertically flipped tile's artwork is mirrored top-to-bottom, so its contact point
+  // (authored against the unflipped art) mirrors too.
+  return tile.flipY ? fullHeight - contactY : contactY;
+}
+
+/**
+ * Draws a tile layer as individual images so each connected prop (flood-filled group of
+ * touching tiles) can depth-sort against world entities as a single unit, sharing one depth
+ * instead of splitting into separate per-column or per-row depths.
  * @param {Phaser.Scene} scene
  * @param {Phaser.Tilemaps.Tilemap} tilemap
  * @param {Phaser.Tilemaps.TilemapLayer} tileLayer
  * @param {string} backgroundId
+ * @param {number} layerOrder - later Y-sorted layers receive a small same-Y depth advantage
+ * @param {number} ySortedLayerCount
  * @returns {Phaser.GameObjects.Image[]}
  */
-function createYSortedTileSprites(scene, tilemap, tileLayer, backgroundId) {
+function createYSortedTileSprites(scene, tilemap, tileLayer, backgroundId, layerOrder, ySortedLayerCount) {
   const tiles = [];
   tileLayer.forEachTile((tile) => {
     if (tile.index >= 0) tiles.push(tile);
   });
 
-  const tilesByPosition = new Map(tiles.map((tile) => [`${tile.x},${tile.y}`, tile]));
+  // Group tiles into connected "blocks" via 4-directional flood fill, so a whole prop (bin,
+  // poster, etc.) that is several tiles wide gets ONE shared depth from its own lowest bottom
+  // edge. Grouping by column alone (the previous approach) split each column of a multi-column
+  // prop into its own block with its own depth: if two columns of the same object happened to
+  // bottom out on different tile rows (a jagged edge, an overhang, a shadow tile) they'd be
+  // sorted independently against the player, splitting one object visually above/below the
+  // character. Flood-filling keeps every tile of one object together.
+  const tileAt = new Map();
+  for (const tile of tiles) tileAt.set(`${tile.x},${tile.y}`, tile);
+
   const visited = new Set();
   const blocks = [];
-
-  for (const tile of tiles) {
-    const startKey = `${tile.x},${tile.y}`;
+  for (const startTile of tiles) {
+    const startKey = `${startTile.x},${startTile.y}`;
     if (visited.has(startKey)) continue;
 
     const block = [];
-    const queue = [tile];
+    const stack = [startTile];
     visited.add(startKey);
-    while (queue.length) {
-      const current = queue.pop();
-      block.push(current);
-      for (const [x, y] of [
-        [current.x - 1, current.y],
-        [current.x + 1, current.y],
-        [current.x, current.y - 1],
-        [current.x, current.y + 1],
-      ]) {
-        const key = `${x},${y}`;
-        const neighbor = tilesByPosition.get(key);
-        if (neighbor && !visited.has(key)) {
-          visited.add(key);
-          queue.push(neighbor);
+    while (stack.length) {
+      const tile = stack.pop();
+      block.push(tile);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const neighborKey = `${tile.x + dx},${tile.y + dy}`;
+        const neighbor = tileAt.get(neighborKey);
+        if (neighbor && !visited.has(neighborKey)) {
+          visited.add(neighborKey);
+          stack.push(neighbor);
         }
       }
     }
@@ -93,10 +135,11 @@ function createYSortedTileSprites(scene, tilemap, tileLayer, backgroundId) {
 
   const sprites = [];
   const depthRange = DEPTH.WORLD_FOREGROUND - DEPTH.WORLD_ENTITIES - 1;
+  const layerDepthOffset = depthRange / (tilemap.heightInPixels * (ySortedLayerCount + 1)) * layerOrder;
   for (const block of blocks) {
-    const blockBottom = Math.max(...block.map((tile) => tileLayer.y + tile.pixelY + tile.height));
+    const blockBottom = Math.max(...block.map((tile) => tileLayer.y + tile.pixelY + getTileContactY(tile)));
     const normalizedY = Math.max(0, Math.min(1, blockBottom / tilemap.heightInPixels));
-    const blockDepth = DEPTH.WORLD_ENTITIES + normalizedY * depthRange;
+    const blockDepth = DEPTH.WORLD_ENTITIES + normalizedY * depthRange + layerDepthOffset;
 
     for (const tile of block) {
       const tileset = tile.tileset;
@@ -377,7 +420,15 @@ export const BackgroundLoader = {
           tileLayer.setDepth(DEPTH.WORLD_GROUND);
           tintables.push(tileLayer);
           if (isYSortedLayer) {
-            const sprites = createYSortedTileSprites(scene, tilemap, tileLayer, manifest.id);
+            const layerOrder = cfg.y_sorted_layers.indexOf(layerData.name);
+            const sprites = createYSortedTileSprites(
+              scene,
+              tilemap,
+              tileLayer,
+              manifest.id,
+              layerOrder,
+              cfg.y_sorted_layers.length,
+            );
             tileLayer.setVisible(false);
             displayObjects.push(...sprites);
             tintables.push(...sprites);

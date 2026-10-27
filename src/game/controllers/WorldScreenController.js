@@ -282,7 +282,7 @@ export class WorldScreenController extends ScreenController {
     this.modeLabel.setDepth(DEPTH.UI_HUD);
     this._refreshModeLabel();
 
-    // HUD panel (status bar bottom-left; keyboard-shortcut hint text top-right).
+    // HUD panel (keyboard-shortcut hint text top-right).
     // FIX (menu/pause screen): the old Quit and Inventory BUTTONS are gone — Quit's job (opening
     // Settings) is now reached via Backspace -> the pause menu -> Settings (see
     // PauseMenuScreenController.js and this controller's 'cancel' handling in onInput), and Inventory
@@ -421,7 +421,6 @@ export class WorldScreenController extends ScreenController {
     this.teacher.update(time, delta);
     this._keepCatOffPlayer();
     this._sortWorldEntities();
-    this.hudPanel.setBarFraction(LoopManager.glitchLevel());
 
     // In fight mode E punches rather than interacts, so the "[E] interact" prompt would be
     // misleading there — only show it in normal mode.
