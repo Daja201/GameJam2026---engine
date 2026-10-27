@@ -140,6 +140,7 @@ export class WorldScreenController extends ScreenController {
       scene.cameras.main.setBounds(0, 0, mapSize.width, mapSize.height);
     }
     const collisionLayer = this.background?.getCollisionLayer?.();
+    const partialHitboxGroup = this.background?.getPartialHitboxGroup?.();
     if (collisionLayer) {
       scene.physics.add.collider(this.actor.sprite, collisionLayer);
       // Partial (smaller-than-a-full-tile) hitboxes: rectangles drawn per-tile in Tiled's own
@@ -147,12 +148,7 @@ export class WorldScreenController extends ScreenController {
       // these get built. Independent of the full-tile `collides` collider just above; a tile can
       // use either, both, or neither mechanic. Null (nothing collided against) when no placed
       // tile has a drawn collision shape, so this stays a no-op until you actually use one.
-      const partialHitboxGroup = this.background?.getPartialHitboxGroup?.();
       if (partialHitboxGroup) scene.physics.add.collider(this.actor.sprite, partialHitboxGroup);
-      // NOTE: the cat companion is deliberately NOT given a collider here — it moves by directly
-      // setting sprite.x/y each frame (Companion.js), not via arcade velocity/acceleration, so a
-      // collider would only ever stop it dead against a wall rather than let it path around one.
-      // It can clip through buildings as a result; acceptable for a jam-scope follower.
     }
 
     // Hitbox debug overlay (Settings > "Show Hitboxes (debug)"): draws a red rectangle around
@@ -189,7 +185,12 @@ export class WorldScreenController extends ScreenController {
     // Companion cat: trails the player with a short lag (see Companion.js). Reused unmodified
     // from here on by `onUpdate`/`onExit` — nothing else in this controller needs to know how
     // the follow behavior works internally.
-    this.cat = new Companion(scene, 'cat_companion', this.actor.sprite);
+    this.cat = new Companion(scene, 'cat_companion', this.actor.sprite, {
+      collisionLayer,
+      obstacleGroup: partialHitboxGroup,
+    });
+    if (collisionLayer) scene.physics.add.collider(this.cat.sprite, collisionLayer);
+    if (partialHitboxGroup) scene.physics.add.collider(this.cat.sprite, partialHitboxGroup);
     this.louisa = new Actor(scene, 'louisa', SPAWN_X + 120, SPAWN_Y);
     // NOTE: blocking the player from walking THROUGH the cat is handled by `_keepCatOffPlayer`
     // (called from onUpdate, after both actor/cat `update()`), NOT by `physics.add.collider`.
@@ -457,6 +458,7 @@ export class WorldScreenController extends ScreenController {
     const mapHeight = this.mapSize?.height ?? INTERNAL_HEIGHT;
     const sortables = [
       this.actor.sprite,
+      // Keep the cat in the exact same ground-Y depth ordering as the player.
       this.cat.sprite,
       this.pcVisual,
       ...this.scrapPickups.map(({ visual }) => visual),
