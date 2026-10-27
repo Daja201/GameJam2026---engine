@@ -6,6 +6,13 @@
   "tilemap": {
     "source": "city.json",
     "tileset_image": "tileset.png",
+    "additional_tilesets": [
+      {
+        "name": "props",
+        "image": "../../tileset/Cyberpunk_City_Props.png"
+      }
+    ],
+    "y_sorted_layers": ["city overlay"],
     "collision_layer": "city"
   },
   "ambient_tint": "#eef2ff"

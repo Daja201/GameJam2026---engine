@@ -121,5 +121,11 @@ export function queueBackgroundAssets(scene, manifest) {
     if (!scene.textures.exists(tilesetKey)) {
       scene.load.image(tilesetKey, resolvePath(folder, manifest.tilemap.tileset_image));
     }
+    for (const tileset of manifest.tilemap.additional_tilesets || []) {
+      const key = `${manifest.id}:tileset:${tileset.name}`;
+      if (!scene.textures.exists(key)) {
+        scene.load.image(key, resolvePath(folder, tileset.image));
+      }
+    }
   }
 }

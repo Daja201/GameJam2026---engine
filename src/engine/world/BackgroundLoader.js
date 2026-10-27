@@ -29,7 +29,7 @@ const DEPTH_BY_NAME = {
   near: DEPTH.BACKGROUND_NEAR,
 };
 
-const EXTERNAL_TILESET_SOURCES = import.meta.glob('/graphics/tileset/**/*.tsx', {
+const EXTERNAL_TILESET_SOURCES = import.meta.glob('/graphics/**/*.tsx', {
   query: '?raw',
   import: 'default',
   eager: true,
@@ -47,6 +47,100 @@ function resolveLayerDepth(depth) {
 }
 
 /**
+ * Draws a tile layer as individual images so each tile can depth-sort against world entities.
+ * @param {Phaser.Scene} scene
+ * @param {Phaser.Tilemaps.Tilemap} tilemap
+ * @param {Phaser.Tilemaps.TilemapLayer} tileLayer
+ * @param {string} backgroundId
+ * @returns {Phaser.GameObjects.Image[]}
+ */
+function createYSortedTileSprites(scene, tilemap, tileLayer, backgroundId) {
+  const tiles = [];
+  tileLayer.forEachTile((tile) => {
+    if (tile.index >= 0) tiles.push(tile);
+  });
+
+  const tilesByPosition = new Map(tiles.map((tile) => [`${tile.x},${tile.y}`, tile]));
+  const visited = new Set();
+  const blocks = [];
+
+  for (const tile of tiles) {
+    const startKey = `${tile.x},${tile.y}`;
+    if (visited.has(startKey)) continue;
+
+    const block = [];
+    const queue = [tile];
+    visited.add(startKey);
+    while (queue.length) {
+      const current = queue.pop();
+      block.push(current);
+      for (const [x, y] of [
+        [current.x - 1, current.y],
+        [current.x + 1, current.y],
+        [current.x, current.y - 1],
+        [current.x, current.y + 1],
+      ]) {
+        const key = `${x},${y}`;
+        const neighbor = tilesByPosition.get(key);
+        if (neighbor && !visited.has(key)) {
+          visited.add(key);
+          queue.push(neighbor);
+        }
+      }
+    }
+    blocks.push(block);
+  }
+
+  const sprites = [];
+  const depthRange = DEPTH.WORLD_FOREGROUND - DEPTH.WORLD_ENTITIES - 1;
+  for (const block of blocks) {
+    const blockBottom = Math.max(...block.map((tile) => tileLayer.y + tile.pixelY + tile.height));
+    const normalizedY = Math.max(0, Math.min(1, blockBottom / tilemap.heightInPixels));
+    const blockDepth = DEPTH.WORLD_ENTITIES + normalizedY * depthRange;
+
+    for (const tile of block) {
+      const tileset = tile.tileset;
+      const coordinates = tileset?.getTileTextureCoordinates(tile.index);
+      if (!tileset || !coordinates) {
+        throw new Error(
+          `Tile layer "${tileLayer.layer.name}" in "${backgroundId}" references an unbound tile ${tile.index}`
+        );
+      }
+
+      const texture = tileset.image;
+      const frameName = `__ysort_${backgroundId}_${tileset.name}_${tile.index}`;
+      if (!texture.has(frameName)) {
+        texture.add(
+          frameName,
+          0,
+          coordinates.x,
+          coordinates.y,
+          tileset.tileWidth,
+          tileset.tileHeight,
+        );
+      }
+
+      const image = scene.add.image(0, 0, texture.key, frameName);
+      image.setOrigin(0.5);
+      image.setPosition(
+        tileLayer.x + tile.pixelX + tileset.tileWidth / 2 - tileset.tileOffset.x,
+        tileLayer.y + tile.pixelY + tileset.tileHeight / 2 - tileset.tileOffset.y,
+      );
+      image.setFlip(tile.flipX, tile.flipY);
+      image.setRotation(tile.rotation);
+      image.setAlpha(tileLayer.alpha * (tile.alpha ?? 1));
+      image.setTint(tile.tint ?? 0xffffff);
+      image.setVisible(tileLayer.visible && tile.visible !== false);
+      image.setScrollFactor(tileLayer.scrollFactorX, tileLayer.scrollFactorY);
+      image.setDepth(blockDepth);
+      sprites.push(image);
+    }
+  }
+
+  return sprites;
+}
+
+/**
  * @typedef {Object} BackgroundHandle
  * @property {() => void} destroy - destroys every GameObject/tilemap created by build()
  * @property {() => Phaser.Tilemaps.TilemapLayer|null} getCollisionLayer - null unless type === 'tilemap'
@@ -61,12 +155,12 @@ function resolveLayerDepth(depth) {
 
 /**
  * Converts Tiled's external TSX tileset data into the embedded JSON form Phaser supports.
- * This project uses external TSX files as metadata for a duplicate of the map's embedded image
- * tileset, so the duplicate GIDs can be collapsed while retaining its collision definitions.
+ * This project uses external TSX files as metadata for duplicates of embedded image tilesets,
+ * so their tile definitions can be merged while retaining their collision shapes.
  * @param {Phaser.Scene} scene
  * @param {string} backgroundId
  * @returns {void}
- * @throws {Error} if an external TSX cannot safely be merged into the embedded image tileset
+ * @throws {Error} if an external TSX cannot safely be merged into its embedded image tileset
  */
 function mergeExternalTilesets(scene, manifest) {
   const { id: backgroundId, tilemap: config } = manifest;
@@ -84,13 +178,7 @@ function mergeExternalTilesets(scene, manifest) {
     }
     return `/${parts.join('/')}`;
   };
-  const embedded = mapJson.tilesets.find((tileset) => tileset.image && !tileset.source);
-  if (!embedded) {
-    throw new Error(`Background "${backgroundId}": external TSX requires an embedded image tileset`);
-  }
-
   const externalSets = mapJson.tilesets.filter((tileset) => tileset.source);
-  const metadataById = new Map((embedded.tiles || []).map((tile) => [tile.id, tile]));
   for (const external of externalSets) {
     const sourcePath = resolveSourcePath(external.source);
     const source = EXTERNAL_TILESET_SOURCES[sourcePath];
@@ -111,6 +199,14 @@ function mergeExternalTilesets(scene, manifest) {
     const tileHeight = readNumber(root, 'tileheight');
     const tileCount = readNumber(root, 'tilecount');
     const columns = readNumber(root, 'columns');
+    const embedded = mapJson.tilesets.find((tileset) => (
+      tileset.image && !tileset.source && tileset.name === root.getAttribute('name')
+    ));
+    if (!embedded) {
+      throw new Error(
+        `Background "${backgroundId}": external TSX "${external.source}" has no matching embedded image tileset`
+      );
+    }
     if (
       root.getAttribute('name') !== embedded.name
       || tileWidth !== embedded.tilewidth
@@ -124,6 +220,7 @@ function mergeExternalTilesets(scene, manifest) {
       );
     }
 
+    const metadataById = new Map((embedded.tiles || []).map((tile) => [tile.id, tile]));
     const tiles = Array.from(root.children)
       .filter((element) => element.nodeName === 'tile')
       .map((element) => {
@@ -192,21 +289,21 @@ function mergeExternalTilesets(scene, manifest) {
       });
     }
 
-    const firstGid = external.firstgid;
-    const endGid = firstGid + tileCount;
+    const sourceFirstGid = external.firstgid;
+    const sourceEndGid = sourceFirstGid + tileCount;
     for (const layer of mapJson.layers) {
       if (layer.type !== 'tilelayer' || !Array.isArray(layer.data)) continue;
       layer.data = layer.data.map((rawGid) => {
         const gid = rawGid >>> 0;
         const flags = gid & 0xe0000000;
         const baseGid = gid & 0x1fffffff;
-        if (baseGid < firstGid || baseGid >= endGid) return rawGid;
-        return (flags | (baseGid - tileCount)) >>> 0;
+        if (baseGid < sourceFirstGid || baseGid >= sourceEndGid) return rawGid;
+        return (flags | (baseGid - sourceFirstGid + embedded.firstgid)) >>> 0;
       });
     }
+    embedded.tiles = [...metadataById.values()];
   }
 
-  embedded.tiles = [...metadataById.values()];
   mapJson.tilesets = mapJson.tilesets.filter((tileset) => !tileset.source);
 }
 
@@ -256,23 +353,34 @@ export const BackgroundLoader = {
         // cache key, not the manifest's raw `source` file path (which is only used at load time).
         tilemap = scene.make.tilemap({ key: `${manifest.id}:tilemap` });
 
-        // ASSUMPTION: a single tileset image sharing the tilemap's key is registered by module 03
-        // as `${id}:tileset`; tileset "name" inside the Tiled JSON must match for addTilesetImage to bind it.
-        const tilesetImageKey = `${manifest.id}:tileset`;
-        const firstTilesetName = tilemap.tilesets[0] ? tilemap.tilesets[0].name : undefined;
-        const tileset = tilemap.addTilesetImage(firstTilesetName, tilesetImageKey);
-        if (!tileset) {
+        // The primary atlas uses the legacy `${id}:tileset` key; extra Tiled atlases are declared
+        // by name in `tilemap.additional_tilesets` and use `${id}:tileset:${name}`.
+        const firstTilesetName = tilemap.tilesets[0]?.name;
+        const tilesets = [
+          tilemap.addTilesetImage(firstTilesetName, `${manifest.id}:tileset`),
+          ...(cfg.additional_tilesets || []).map(({ name }) => (
+            tilemap.addTilesetImage(name, `${manifest.id}:tileset:${name}`)
+          )),
+        ];
+        if (tilesets.some((tileset) => !tileset)) {
           throw new Error(
-            `Background "${manifest.id}": could not bind tileset image "${tilesetImageKey}" `
-            + `to tileset "${firstTilesetName}" in the Tiled map "${cfg.source}"`
+            `Background "${manifest.id}": could not bind one or more configured tileset images `
+            + `to the Tiled map "${cfg.source}"`
           );
         }
 
         for (const layerData of tilemap.layers) {
-          const tileLayer = tilemap.createLayer(layerData.name, tileset, 0, 0);
+          const tileLayer = tilemap.createLayer(layerData.name, tilesets, 0, 0);
           if (!tileLayer) continue;
+          const isYSortedLayer = cfg.y_sorted_layers?.includes(layerData.name);
           tileLayer.setDepth(DEPTH.WORLD_GROUND);
           tintables.push(tileLayer);
+          if (isYSortedLayer) {
+            const sprites = createYSortedTileSprites(scene, tilemap, tileLayer, manifest.id);
+            tileLayer.setVisible(false);
+            displayObjects.push(...sprites);
+            tintables.push(...sprites);
+          }
           if (cfg.collision_layer && layerData.name === cfg.collision_layer) {
             // Standard Tiled convention: tiles tagged with a boolean custom property `collides`.
             // This is a FULL-TILE, on/off solid — the whole 32x32 square or nothing. See the
@@ -280,58 +388,45 @@ export const BackgroundLoader = {
             // half-wall, a corner you can cut).
             tileLayer.setCollisionByProperty({ collides: true });
             collisionLayer = tileLayer;
-
-            // PARTIAL HITBOXES: Arcade Physics (what this whole engine uses — see
-            // `scene.physics.add.sprite` in Actor.js) only ever collides a tile as ONE rectangle
-            // the size of the full tile; it has no notion of a smaller/offset shape within a
-            // tile. To still get that (a thin fence, a wall you can cut the corner of, etc.),
-            // this reads whatever rectangle(s) were drawn in TILED'S OWN "Tile Collision Editor"
-            // for each tile actually placed on this layer (right-click a tile in the Tilesets
-            // panel -> "Edit Collision Shapes" / the hammer-and-tools icon; draw one or more
-            // rectangles anywhere within the tile, any size/position, then save) — Phaser already
-            // parses these into `tileset.getTileData(tile.index).objectgroup.objects` for free
-            // (see Tileset.js), this just turns each one into its own small static Arcade body at
-            // the tile's exact map position. This is INDEPENDENT of the `collides` property above:
-            // a tile can have one, the other, both, or neither. A tile with only a drawn rectangle
-            // and no `collides` property is NOT marked solid by `setCollisionByProperty` above, so
-            // the two mechanics never fight over the same tile.
-            partialHitboxGroup = scene.physics.add.staticGroup();
-            tileLayer.forEachTile((tile) => {
-              if (tile.index < 0) return; // empty cell
-              const shapes = tileset.getTileData(tile.index)?.objectgroup?.objects;
-              if (!shapes || !shapes.length) return;
-              for (const shape of shapes) {
-                let { x, y, width, height } = shape;
-                if (shape.polygon?.length) {
-                  const xs = shape.polygon.map((point) => point.x);
-                  const ys = shape.polygon.map((point) => point.y);
-                  const minX = Math.min(...xs);
-                  const minY = Math.min(...ys);
-                  const maxX = Math.max(...xs);
-                  const maxY = Math.max(...ys);
-                  x += minX;
-                  y += minY;
-                  width = maxX - minX;
-                  height = maxY - minY;
-                }
-                if (width == null || height == null || width <= 0 || height <= 0) continue;
-                // Arcade Physics only supports axis-aligned rectangles here. Tiled rectangles
-                // remain exact; polygon boundaries use their bounding rectangle as the solid.
-                const body = scene.add.rectangle(
-                  tile.pixelX + x + width / 2,
-                  tile.pixelY + y + height / 2,
-                  width,
-                  height,
-                ).setVisible(false);
-                scene.physics.add.existing(body, /* isStatic */ true);
-                partialHitboxGroup.add(body);
-              }
-            });
-            if (partialHitboxGroup.countActive(true) === 0) {
-              partialHitboxGroup.destroy();
-              partialHitboxGroup = null; // nothing drawn in Tiled's collision editor — fine, optional
-            }
           }
+
+          // Partial tile shapes are independent of the full-tile `collides` property and can
+          // be placed on any visual layer, including a separate props overlay.
+          tileLayer.forEachTile((tile) => {
+            if (tile.index < 0) return;
+            const tileTileset = tilesets.find((candidate) => (
+              tile.index >= candidate.firstgid && tile.index < candidate.firstgid + candidate.total
+            ));
+            const shapes = tileTileset?.getTileData(tile.index)?.objectgroup?.objects;
+            if (!shapes || !shapes.length) return;
+            for (const shape of shapes) {
+              let { x, y, width, height } = shape;
+              if (shape.polygon?.length) {
+                const xs = shape.polygon.map((point) => point.x);
+                const ys = shape.polygon.map((point) => point.y);
+                const minX = Math.min(...xs);
+                const minY = Math.min(...ys);
+                const maxX = Math.max(...xs);
+                const maxY = Math.max(...ys);
+                x += minX;
+                y += minY;
+                width = maxX - minX;
+                height = maxY - minY;
+              }
+              if (width == null || height == null || width <= 0 || height <= 0) continue;
+              // Arcade Physics only supports axis-aligned rectangles here. Tiled rectangles
+              // remain exact; polygon boundaries use their bounding rectangle as the solid.
+              const body = scene.add.rectangle(
+                tile.pixelX + x + width / 2,
+                tile.pixelY + y + height / 2,
+                width,
+                height,
+              ).setVisible(false);
+              scene.physics.add.existing(body, /* isStatic */ true);
+              if (!partialHitboxGroup) partialHitboxGroup = scene.physics.add.staticGroup();
+              partialHitboxGroup.add(body);
+            }
+          });
         }
         if (cfg.collision_layer && !collisionLayer) {
           throw new Error(

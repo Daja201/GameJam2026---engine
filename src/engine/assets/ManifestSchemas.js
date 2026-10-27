@@ -168,6 +168,18 @@ export const BACKGROUND_MANIFEST_SCHEMA = {
         // the registered cache key `${id}:tilemap`).
         source: { type: 'string', minLength: 1 },
         tileset_image: { type: 'string', minLength: 1 },
+        additional_tilesets: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['name', 'image'],
+            properties: {
+              name: { type: 'string', minLength: 1 },
+              image: { type: 'string', minLength: 1 },
+            },
+          },
+        },
+        y_sorted_layers: { type: 'array', items: { type: 'string', minLength: 1 } },
         collision_layer: { type: 'string', minLength: 1 },
       },
     },
