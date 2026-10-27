@@ -490,7 +490,7 @@ class QuestManagerImpl {
 
   /**
    * @param {string} questId
-   * @returns {object|null} `{ id, title, description, status, startedAt, completedAt, objectives: [{id, description, type, current, count, done}] }`,
+   * @returns {object|null} `{ id, title, description, status, startedAt, completedAt, objectives: [{id, description, type, current, count, done, screenId?, x?, y?}] }`,
    *   or null if `questId` has never been assigned
    */
   getQuest(questId) {
@@ -514,6 +514,11 @@ class QuestManagerImpl {
           current: progress.current,
           count: progress.count,
           done: progress.done,
+          ...(objective.type === 'reach_location' ? {
+            screenId: objective.screenId,
+            x: objective.x,
+            y: objective.y,
+          } : {}),
         };
       }),
     };

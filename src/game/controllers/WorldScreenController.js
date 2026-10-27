@@ -24,8 +24,6 @@ const TOAST_ACCENT_COMPLETE = 0x6fe39a;
 
 /** Walking speed, pixels per second. */
 const WALK_SPEED = 60;
-/** How close the player must be to the "PC" prop to interact with it. */
-const INTERACT_RADIUS = 28;
 
 /** How close the player must be to a scrap pickup to interact with it. */
 const PICKUP_RADIUS = 20;
@@ -36,14 +34,21 @@ const WORLD_Y_SORT_DEPTH_RANGE = DEPTH.WORLD_FOREGROUND - DEPTH.WORLD_ENTITIES -
 const CITY_PORTAL_TILE = { x: 3, y: 0 };
 const UNDER_ARRIVAL_TILE = { x: 0, y: 7 };
 const PORTAL_FADE_MS = 500;
+const CITY_SHORTCUT_FADE_MS = 900;
+const CITY_SHORTCUTS = {
+  lower: [{ x: 11, y: 26 }, { x: 12, y: 26 }],
+  upper: [{ x: 12, y: 4 }, { x: 13, y: 4 }],
+};
+const ELEVATOR_QUEST_ID = 'arrive_at_elevator';
+const ELEVATOR_OBJECTIVE_IDS = ['reach_elevator', 'reach_upper_elevator'];
+const WORK_QUEST_ID = 'get_to_work';
 
 /**
  * Quest content for this room (THIS controller's own example content — the quest engine,
  * `engine/quest/QuestManager.js`, knows nothing about any of these ids; see its module docstring
- * for the "no content coupling" reasoning). `world_pc`/`scrap_metal`/the `world` screen id here
+ * for the "no content coupling" reasoning). The `scrap_metal` item and `world` screen id here
  * must exactly match what `/config/quests.default.json` references for those quests to progress.
  */
-const WORLD_PC_INTERACT_ID = 'world_pc';
 const SCRAP_ITEM_ID = 'scrap_metal';
 
 /** Mode names. In 'normal' mode E interacts with the world; in 'fight' mode E punches. */
@@ -196,9 +201,7 @@ export class WorldScreenController extends ScreenController {
     if (partialHitboxGroup) {
       this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, partialHitboxGroup));
     }
-    this.louisa = new Actor(scene, 'louisa', spawnX + 120, spawnY);
     this.soldier = new Actor(scene, 'soldier', spawnX + 200, spawnY + 40);
-    this.teacher = new Actor(scene, 'teach', spawnX - 120, spawnY + 40);
     // NOTE: blocking the player from walking THROUGH the cat is handled by `_keepCatOffPlayer`
     // (called from onUpdate, after both actor/cat `update()`), NOT by `physics.add.collider`.
     // An Arcade collider was tried here first and caused the camera to visibly shake while
@@ -209,31 +212,6 @@ export class WorldScreenController extends ScreenController {
     // pushes both sides apart by default — that tug-of-war also kept nudging the player, which
     // the camera follows. `_keepCatOffPlayer` resolves the same overlap but only ever moves the
     // cat, so the player (and the camera) stay untouched by it.
-
-    const pcX = spawnX + 40;
-    const pcY = spawnY;
-    // Visual for the trigger zone — InteractiveObject itself only builds the invisible zone.
-    this.pcVisual = scene.add.rectangle(pcX, pcY, 14, 14, 0x334455).setDepth(DEPTH.WORLD_ENTITIES);
-    this.pcVisual.setStrokeStyle(1, 0x8aa8ff);
-
-    this.pc = new InteractiveObject(scene, pcX, pcY, {
-      width: 20,
-      height: 20,
-      label: '[E] interact',
-      onInteract: () => {
-        // Quest progress and the actual gameplay effect (opening the Terminal screen) are
-        // independent of each other on purpose: QuestManager doesn't know or care WHY this
-        // target was interacted with, and the Terminal would open the same way with zero
-        // quests assigned to it.
-        QuestManager.triggerInteract(WORLD_PC_INTERACT_ID);
-        this.engine.screenManager.push('terminal');
-      },
-    });
-    // Blocks the player from walking through the PC prop. Separate from interact detection:
-    // `onUpdate` still decides whether `[E]` is usable via `isWithinRadius(INTERACT_RADIUS)`
-    // against `this.pc.zone`'s x/y (a distance check, not a physics overlap), so making the
-    // zone solid here doesn't change when the prompt shows or when interact fires.
-    scene.physics.add.collider(this.actor.sprite, this.pc.zone);
 
     // Scrap-metal pickups (this room's "getting some item" quest content). Only as many are
     // spawned as are still needed: if a previous session
@@ -313,6 +291,7 @@ export class WorldScreenController extends ScreenController {
     this._onQuestCompleted = ({ id, rewardItems }) => {
       const quest = QuestManager.getQuest(id);
       if (quest) this.toasts.show(`Quest Complete: ${quest.title}`, { accentColor: TOAST_ACCENT_COMPLETE });
+      if (id === ELEVATOR_QUEST_ID) QuestManager.assignQuest(WORK_QUEST_ID);
 
       // Reward granting is this content's job, not QuestManager's (see its module docstring's
       // REWARD ITEMS note) — QuestManager only hands the list off on the event payload.
@@ -387,17 +366,11 @@ export class WorldScreenController extends ScreenController {
     this._syncActorOrigin();
     this.actor.update(time, delta);
     this.cat.update(time, delta);
-    this.louisa.update(time, delta);
     this.soldier.update(time, delta);
-    this.teacher.update(time, delta);
     this._keepCatOffPlayer();
     this._sortWorldEntities();
     this._checkPortalTransition();
     if (this.isTransitioning) return;
-
-    // In fight mode E punches rather than interacts, so the "[E] interact" prompt would be
-    // misleading there — only show it in normal mode.
-    this.pc.showPrompt(this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, this.pc.zone, INTERACT_RADIUS));
 
     for (const pickup of this.scrapPickups) {
       pickup.object.showPrompt(this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, pickup.object.zone, PICKUP_RADIUS));
@@ -411,6 +384,14 @@ export class WorldScreenController extends ScreenController {
     // "Getting somewhere" quest progress: fed every frame, same way LoopManager/FxManager usage
     // below is — QuestManager itself does the cheap no-op check when nothing's listening.
     QuestManager.reportLocation('world', this.actor.sprite.x, this.actor.sprite.y);
+    const trackedLocation = QuestManager.getTrackedQuest()?.objectives.find((objective) => (
+      objective.type === 'reach_location'
+      && objective.screenId === 'world'
+      && !objective.done
+      && Number.isFinite(objective.x)
+      && Number.isFinite(objective.y)
+    ));
+    this.mapOverlay?.setTarget(trackedLocation ? { x: trackedLocation.x, y: trackedLocation.y } : null);
 
     // Usage pattern documented at the top of module 09's FxManager.js.
     const level = LoopManager.glitchLevel();
@@ -429,6 +410,7 @@ export class WorldScreenController extends ScreenController {
     return createMapOverlay(this.engine.scene, {
       follow: this.actor.sprite,
       mapSize: this.mapSize,
+      tileSize: this.background.getTileSize(),
       ignore: [
         ...this.hudPanel.getDisplayObjects(),
         this.modeLabel,
@@ -450,6 +432,24 @@ export class WorldScreenController extends ScreenController {
     if (this._currentArea === 'city') {
       const tileX = Math.floor(body.center.x / tileSize.width);
       const tileY = Math.floor(body.center.y / tileSize.height);
+      if (this.moveKeys.up.isDown && body.blocked.up) {
+        const lowerIndex = CITY_SHORTCUTS.lower.findIndex(
+          (tile) => tile.x === tileX && tileY >= tile.y - 1 && tileY <= tile.y,
+        );
+        if (lowerIndex !== -1) {
+          this._transitionWithinCity(CITY_SHORTCUTS.upper[lowerIndex]);
+          return;
+        }
+
+        const upperIndex = CITY_SHORTCUTS.upper.findIndex(
+          (tile) => tile.x === tileX && tileY >= tile.y - 1 && tileY <= tile.y,
+        );
+        if (upperIndex !== -1) {
+          this._transitionWithinCity(CITY_SHORTCUTS.lower[upperIndex]);
+          return;
+        }
+      }
+
       const atCityPortal = tileX === CITY_PORTAL_TILE.x && tileY === CITY_PORTAL_TILE.y;
       if (!atCityPortal) this._cityPortalLocked = false;
       else if (!this._cityPortalLocked) this._transitionToArea('under');
@@ -459,6 +459,68 @@ export class WorldScreenController extends ScreenController {
     if (this._currentArea !== 'under') return;
     if (body.center.x >= tileSize.width * 1.5) this._underExitArmed = true;
     if (this._underExitArmed && body.left <= 2) this._transitionToArea('city');
+  }
+
+  /**
+   * Fades to black and teleports between the two city-map shortcuts.
+   * @private
+   * @param {{x:number,y:number}} destination
+   * @returns {void}
+   */
+  _transitionWithinCity(destination) {
+    if (this.isTransitioning) return;
+    const { scene } = this.engine;
+    this.isTransitioning = true;
+    this.actor.sprite.body.setVelocity(0, 0);
+    this.cat.sprite.body.setVelocity(0, 0);
+    this.actor.playState('idle');
+
+    const overlay = scene.add.rectangle(
+      INTERNAL_WIDTH / 2,
+      INTERNAL_HEIGHT / 2,
+      INTERNAL_WIDTH + 2,
+      INTERNAL_HEIGHT + 2,
+      0x000000,
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY).setAlpha(0);
+    this._portalTransitionOverlay = overlay;
+    scene.tweens.add({
+      targets: overlay,
+      alpha: 1,
+      duration: CITY_SHORTCUT_FADE_MS,
+      onComplete: () => {
+        const tileSize = this.background.getTileSize();
+        const x = (destination.x + 0.5) * tileSize.width;
+        const y = (destination.y + 0.5) * tileSize.height;
+        this.actor.sprite.setPosition(x, y);
+        this.actor.sprite.body.reset(x, y);
+        this.actor.sprite.body.setVelocity(0, 0);
+        this.cat.teleport(
+          Math.min(this.mapSize.width - 1, x + 24),
+          Math.min(this.mapSize.height - 1, y + 10),
+        );
+        if (CITY_SHORTCUTS.upper.some((tile) => tile.x === destination.x && tile.y === destination.y)
+          && QuestManager.isQuestActive(ELEVATOR_QUEST_ID)) {
+          for (const objectiveId of ELEVATOR_OBJECTIVE_IDS) {
+            const objective = QuestManager.getQuest(ELEVATOR_QUEST_ID)?.objectives.find(
+              (candidate) => candidate.id === objectiveId,
+            );
+            if (objective && !objective.done) {
+              QuestManager.completeObjective(ELEVATOR_QUEST_ID, objectiveId);
+            }
+          }
+        }
+        scene.tweens.add({
+          targets: overlay,
+          alpha: 0,
+          duration: CITY_SHORTCUT_FADE_MS,
+          onComplete: () => {
+            overlay.destroy();
+            this._portalTransitionOverlay = null;
+            this.isTransitioning = false;
+          },
+        });
+      },
+    });
   }
 
   /**
@@ -591,10 +653,7 @@ export class WorldScreenController extends ScreenController {
       this.actor.sprite,
       // Keep the cat in the exact same ground-Y depth ordering as the player.
       this.cat.sprite,
-      this.louisa.sprite,
       this.soldier.sprite,
-      this.teacher.sprite,
-      this.pcVisual,
       ...this.scrapPickups.map(({ visual }) => visual),
       ...this.droppedItems.flatMap(({ visual, icon, countLabel }) => [visual, icon, countLabel]),
     ];
@@ -922,7 +981,6 @@ export class WorldScreenController extends ScreenController {
     } else if (action === 'interact' && this.mode === MODE_NORMAL) {
       // FIGHT mode's E (punch) is handled by continuous polling in onUpdate instead — see
       // class-level INPUT DESIGN NOTE for why the discrete action isn't used for it.
-      if (isWithinRadius(this.actor.sprite, this.pc.zone, INTERACT_RADIUS)) this.pc.trigger();
       for (const pickup of this.scrapPickups) {
         if (isWithinRadius(this.actor.sprite, pickup.object.zone, PICKUP_RADIUS)) pickup.object.trigger();
       }
@@ -1009,11 +1067,7 @@ export class WorldScreenController extends ScreenController {
     this.toasts.destroy();
     this.actor.sprite.destroy();
     this.cat.destroy();
-    this.louisa.sprite.destroy();
     this.soldier.sprite.destroy();
-    this.teacher.sprite.destroy();
-    this.pc.destroy();
-    this.pcVisual.destroy();
     for (const pickup of this.scrapPickups) {
       pickup.object.destroy();
       pickup.visual.destroy();

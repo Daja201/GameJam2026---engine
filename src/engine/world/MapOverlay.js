@@ -1,89 +1,96 @@
 import { INTERNAL_WIDTH, INTERNAL_HEIGHT } from '../display/constants.js';
 import { DEPTH } from '../display/DepthLayers.js';
 
-/**
- * The minimap camera is clipped to a circle via `camera.setMask()`. Its square viewport is a
- * little larger than the mask so the camera output fully covers the circle.
- */
-const HOLE_RADIUS = 23;
-const BORDER_RADIUS = HOLE_RADIUS + 1;
-const MINIMAP_SIZE = HOLE_RADIUS * 2 + 4;
-const MINIMAP_MARGIN = 4;
-// The minimap zoom is derived from the actual map size so it displays a consistent map fraction
-// and still follows the player when maps are resized.
-const MINIMAP_VIEW_FRACTION = 0.35; // fraction of the smaller map dimension visible at once
-
-/**
- * @param {{width:number, height:number}} mapSize
- * @returns {number} minimap camera zoom for this map's size (see MINIMAP_VIEW_FRACTION's doc)
- */
-function computeMinimapZoom(mapSize) {
-  const viewSpan = Math.min(mapSize.width, mapSize.height) * MINIMAP_VIEW_FRACTION;
-  return MINIMAP_SIZE / viewSpan;
-}
+const COMPASS_RADIUS = 23;
+const BORDER_RADIUS = COMPASS_RADIUS + 1;
+const COMPASS_MARGIN = 4;
 
 /** Full map viewport: (almost) the whole internal canvas, with a border margin. */
 const FULLMAP_MARGIN = 20;
 
 const BORDER_COLOR = 0x35e0a8;
 const BG_COLOR = 0x05070c;
+const ARROW_COLOR = 0xff3030;
+const ARROW_LENGTH = COMPASS_RADIUS - 7;
 
 /**
- * Builds an always-on minimap camera (small, bottom-right, follows `opts.follow`, live-rendering
- * real world entities at tiny scale) plus a second camera for a toggleable full-screen map
- * (zoomed to fit the whole `opts.mapSize`, centered on the map). Both are genuine extra Phaser
- * cameras (`scene.cameras.add`), not a pre-rendered image, so anything that moves in the world
- * (the player, companions, pickups, interactables, other quest markers) shows up live on both —
- * this is the "full on map with a working minimap" piece.
+ * Builds a bottom-right quest compass and a toggleable full-screen map camera.
  *
  * WHY EXTRA CAMERAS, NOT A STATIC TEXTURE: the engine's backgrounds can be arbitrarily large
- * tilemaps (see `world/BackgroundLoader.js`) with no separate "map art" asset; a second camera
- * zoomed out is the cheapest way to get a correct, always-current overview of one without
- * generating/maintaining a separate minimap image per background.
+ * tilemaps (see `world/BackgroundLoader.js`) with no separate "map art" asset; the full-screen
+ * map uses a camera zoomed out to fit the whole map without generating separate map art.
  *
- * IGNORE LISTS: screen-fixed HUD (health bar, buttons, quest/mode labels, toast notifications,
- * this overlay's own chrome) must NOT appear — tiny and doubled — inside either map camera, so
- * the caller passes every such GameObject/Container in `opts.ignore`; both map cameras call
- * `.ignore(...)` on the full list. World-space content (tilemap, actors, props) is deliberately
- * NOT ignored, since seeing those live is the whole point.
+ * The screen-fixed compass and HUD are ignored by the full-map camera, while world-space content
+ * remains visible on the full map.
  *
  * @param {Phaser.Scene} scene
- * @param {{ follow: Phaser.GameObjects.GameObject, mapSize: {width:number, height:number}, ignore?: object[] }} opts
+ * @param {{ follow: Phaser.GameObjects.GameObject, mapSize: {width:number, height:number}, tileSize: {width:number, height:number}, ignore?: object[] }} opts
  * @returns {{
  *   isOpen: boolean,
  *   toggleFull(): void,
  *   closeFull(): void,
+ *   setTarget(target: {x:number,y:number}|null): void,
  *   setVisible(visible: boolean): void,
  *   destroy(): void,
  * }}
  */
 export function createMapOverlay(scene, opts) {
-  const { follow, mapSize, ignore = [] } = opts;
+  const { follow, mapSize, tileSize, ignore = [] } = opts;
 
-  const minimapCenterX = INTERNAL_WIDTH - BORDER_RADIUS - MINIMAP_MARGIN;
-  const minimapCenterY = INTERNAL_HEIGHT - BORDER_RADIUS - MINIMAP_MARGIN;
-  const miniX = Math.round(minimapCenterX - MINIMAP_SIZE / 2);
-  const miniY = Math.round(minimapCenterY - MINIMAP_SIZE / 2);
+  const compassCenterX = INTERNAL_WIDTH - BORDER_RADIUS - COMPASS_MARGIN;
+  const compassCenterY = INTERNAL_HEIGHT - BORDER_RADIUS - COMPASS_MARGIN;
+  const compass = scene.add.graphics();
+  compass.setScrollFactor(0);
+  compass.setDepth(DEPTH.UI_HUD);
+  const distanceLabel = scene.add.text(compassCenterX, compassCenterY - BORDER_RADIUS - 5, 'NO TARGET', {
+    fontFamily: 'monospace',
+    fontSize: '7px',
+    color: '#ffffff',
+  }).setOrigin(0.5);
+  distanceLabel.setScrollFactor(0);
+  distanceLabel.setDepth(DEPTH.UI_HUD);
 
-  const minimapCam = scene.cameras.add(miniX, miniY, MINIMAP_SIZE, MINIMAP_SIZE);
-  minimapCam.setName('minimap');
-  minimapCam.setZoom(computeMinimapZoom(mapSize));
-  minimapCam.setBackgroundColor(BG_COLOR);
-  minimapCam.setBounds(0, 0, mapSize.width, mapSize.height);
-  minimapCam.startFollow(follow, true);
+  const redrawCompass = (target) => {
+    compass.clear();
+    compass.fillStyle(BG_COLOR, 0.95);
+    compass.fillCircle(compassCenterX, compassCenterY, COMPASS_RADIUS);
+    compass.lineStyle(1, BORDER_COLOR, 1);
+    compass.strokeCircle(compassCenterX, compassCenterY, BORDER_RADIUS);
 
-  // The mask is screen-fixed so it stays aligned with the minimap as the camera follows the player.
-  const minimapMaskShape = scene.add.graphics();
-  minimapMaskShape.fillStyle(0xffffff);
-  minimapMaskShape.fillCircle(minimapCenterX, minimapCenterY, HOLE_RADIUS);
-  minimapMaskShape.setVisible(false);
-  minimapCam.setMask(minimapMaskShape.createGeometryMask(), true);
+    if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)) {
+      distanceLabel.setText('NO TARGET');
+      return;
+    }
 
-  const minimapBorder = scene.add.graphics();
-  minimapBorder.lineStyle(1, BORDER_COLOR, 1);
-  minimapBorder.strokeCircle(minimapCenterX, minimapCenterY, BORDER_RADIUS);
-  minimapBorder.setScrollFactor(0);
-  minimapBorder.setDepth(DEPTH.UI_HUD);
+    const dx = target.x - follow.x;
+    const dy = target.y - follow.y;
+    const distanceInTiles = Math.hypot(dx / tileSize.width, dy / tileSize.height);
+    distanceLabel.setText(`${Math.round(distanceInTiles)} TILES`);
+
+    if (distanceInTiles === 0) return;
+    const angle = Math.atan2(dy, dx);
+    const tipX = compassCenterX + Math.cos(angle) * ARROW_LENGTH;
+    const tipY = compassCenterY + Math.sin(angle) * ARROW_LENGTH;
+    const headBaseX = compassCenterX + Math.cos(angle) * (ARROW_LENGTH - 6);
+    const headBaseY = compassCenterY + Math.sin(angle) * (ARROW_LENGTH - 6);
+    const headHalfWidth = 3;
+    const perpendicularX = -Math.sin(angle) * headHalfWidth;
+    const perpendicularY = Math.cos(angle) * headHalfWidth;
+
+    compass.lineStyle(3, ARROW_COLOR, 1);
+    compass.lineBetween(compassCenterX, compassCenterY, headBaseX, headBaseY);
+    compass.fillStyle(ARROW_COLOR, 1);
+    compass.fillTriangle(
+      tipX,
+      tipY,
+      headBaseX + perpendicularX,
+      headBaseY + perpendicularY,
+      headBaseX - perpendicularX,
+      headBaseY - perpendicularY,
+    );
+    compass.fillCircle(compassCenterX, compassCenterY, 2);
+  };
+  redrawCompass(null);
 
   const fullW = INTERNAL_WIDTH - FULLMAP_MARGIN * 2;
   const fullH = INTERNAL_HEIGHT - FULLMAP_MARGIN * 2;
@@ -117,11 +124,9 @@ export function createMapOverlay(scene, opts) {
   fullmapHint.setDepth(DEPTH.UI_HUD);
   fullmapHint.setVisible(false);
 
-  // Every GameObject built by this overlay is also screen-fixed chrome that must not show up
-  // (tiny, duplicated) inside the two map cameras themselves.
-  const ownChrome = [minimapBorder, fullmapDim, fullmapFrame, fullmapHint];
+  // Screen-fixed chrome must not appear inside the full-map camera.
+  const ownChrome = [compass, distanceLabel, fullmapDim, fullmapFrame, fullmapHint];
   const fullIgnoreList = [...ignore, ...ownChrome];
-  minimapCam.ignore(fullIgnoreList);
   fullmapCam.ignore(fullIgnoreList);
 
   let open = false;
@@ -149,11 +154,15 @@ export function createMapOverlay(scene, opts) {
       fullmapFrame.setVisible(false);
       fullmapHint.setVisible(false);
     },
+    /** Redraws the compass for the currently tracked location objective. @returns {void} */
+    setTarget(target) {
+      redrawCompass(target);
+    },
     /**
-     * Shows/hides EVERYTHING this overlay owns (minimap included) — used when another screen is
+     * Shows/hides EVERYTHING this overlay owns (compass included) — used when another screen is
      * pushed on top of the owning world screen (e.g. Settings, Quest Log): those screens' own
      * windows aren't in `ignore` (they don't exist yet when this overlay is built), so without
-     * this they'd render tiny inside the map cameras too. The full map is force-closed whenever
+     * this they'd render tiny inside the full-map camera too. The full map is force-closed whenever
      * hidden, and stays closed when shown again.
      * @param {boolean} visible
      * @returns {void}
@@ -161,15 +170,14 @@ export function createMapOverlay(scene, opts) {
     setVisible(visible) {
       hidden = !visible;
       if (hidden) this.closeFull();
-      minimapCam.setVisible(visible);
-      minimapBorder.setVisible(visible);
+      compass.setVisible(visible);
+      distanceLabel.setVisible(visible);
     },
     /** @returns {void} */
     destroy() {
-      scene.cameras.remove(minimapCam);
       scene.cameras.remove(fullmapCam);
-      minimapMaskShape.destroy();
-      minimapBorder.destroy();
+      compass.destroy();
+      distanceLabel.destroy();
       fullmapDim.destroy();
       fullmapFrame.destroy();
       fullmapHint.destroy();

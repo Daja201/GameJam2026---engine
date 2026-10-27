@@ -20,12 +20,15 @@ export function buildButton(scene, elementManifest, ctx) {
   const width = elementManifest.width ?? DEFAULT_WIDTH;
   const height = elementManifest.height ?? DEFAULT_HEIGHT;
 
-  const bg = scene.add.rectangle(0, 0, width, height, 0x2a2a3a).setOrigin(0, 0);
-  bg.setStrokeStyle(1, 0x6a6a8a);
+  const backgroundColor = elementManifest.backgroundColor ?? 0x2a2a3a;
+  const textColor = elementManifest.textColor ?? '#35e0a8';
+  const borderColor = elementManifest.borderColor ?? 0x6a6a8a;
+  const bg = scene.add.rectangle(0, 0, width, height, backgroundColor).setOrigin(0, 0);
+  bg.setStrokeStyle(1, borderColor);
   const label = scene.add.text(width / 2, height / 2, elementManifest.text ?? '', {
     fontFamily: 'monospace',
     fontSize: '10px',
-    color: '#35e0a8',
+    color: textColor,
   }).setOrigin(0.5, 0.5);
 
   bg.setInteractive({ useHandCursor: true });

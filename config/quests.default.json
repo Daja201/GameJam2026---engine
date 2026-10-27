@@ -1,48 +1,44 @@
 {
-  "autoStart": ["investigate_the_terminal", "scrap_run", "find_the_clearing"],
+  "autoStart": ["arrive_at_elevator"],
   "quests": [
     {
-      "id": "investigate_the_terminal",
-      "title": "Investigate the Terminal",
-      "description": "Something in this room is glitching. Walk up to the PC and interact with it.",
+      "id": "arrive_at_elevator",
+      "title": "Get to the Elevator",
+      "description": "Reach the elevator and arrive at the upper entrance.",
       "objectives": [
         {
-          "id": "interact_pc",
-          "type": "interact",
-          "targetId": "world_pc",
-          "description": "Interact with the PC"
-        }
-      ],
-      "rewardItems": [{ "itemId": "rusty_key", "count": 1 }]
-    },
-    {
-      "id": "scrap_run",
-      "title": "Scrap Run",
-      "description": "There's loose scrap metal scattered around the room. Walk up to a piece and press [E] to pick it up.",
-      "objectives": [
-        {
-          "id": "collect_scrap",
-          "type": "collect_item",
-          "itemId": "scrap_metal",
-          "count": 2,
-          "description": "Collect 2x Scrap Metal"
-        }
-      ],
-      "rewardItems": [{ "itemId": "stim_pack", "count": 1 }]
-    },
-    {
-      "id": "find_the_clearing",
-      "title": "Find the Clearing",
-      "description": "There's supposedly a quiet spot tucked in the corner of the room. Just walk there.",
-      "objectives": [
-        {
-          "id": "reach_clearing",
+          "id": "reach_elevator",
           "type": "reach_location",
           "screenId": "world",
-          "x": 140,
-          "y": 190,
+          "x": 368,
+          "y": 816,
           "radius": 18,
-          "description": "Reach the clearing"
+          "description": "Reach the elevator"
+        },
+        {
+          "id": "reach_upper_elevator",
+          "type": "reach_location",
+          "screenId": "world",
+          "x": 416,
+          "y": 144,
+          "radius": 18,
+          "description": "Arrive at the upper elevator entrance"
+        }
+      ]
+    },
+    {
+      "id": "get_to_work",
+      "title": "Get to Work",
+      "description": "Make your way to work.",
+      "objectives": [
+        {
+          "id": "reach_work",
+          "type": "reach_location",
+          "screenId": "world",
+          "x": 592,
+          "y": 144,
+          "radius": 18,
+          "description": "Reach work"
         }
       ]
     }

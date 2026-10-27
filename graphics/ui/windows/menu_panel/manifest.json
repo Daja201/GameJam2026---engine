@@ -6,28 +6,21 @@
   "showPanel": false,
   "anchor": "center",
   "modal": false,
-  "size": { "width": 220, "height": 128 },
+  "size": { "width": 480, "height": 270 },
   "layout": "free",
   "elements": [
     {
-      "id": "title_label",
-      "type": "label",
-      "text": "NO GAME NAME ):",
-      "x": 16,
-      "y": 16,
-      "fontSize": "18px",
-      "color": "#35e0a8",
-      "_comment": "Title slot: swap the game's name by editing this one field, or call windowHandle.getElement('title_label') from code/a future asset to replace it (e.g. with a logo image) without touching WindowFactory layout code."
-    },
-    { "id": "start_button", "type": "button", "text": "Start", "action": "menu-start", "x": 16, "y": 60, "width": 188, "height": 22 },
-    {
-      "id": "credit_label",
-      "type": "label",
-      "text": "Github: Daja201",
-      "x": 8,
-      "y": 112,
-      "color": "#000000",
-      "_comment": "Static credit line pinned to the panel's bottom-left corner — no binding/action, see MenuScreenController.js's CREDIT LINE doc."
+      "id": "start_button",
+      "type": "button",
+      "text": "START",
+      "action": "menu-start",
+      "x": 150,
+      "y": 57.5,
+      "width": 180,
+      "height": 20,
+      "backgroundColor": 0,
+      "textColor": "#ffffff",
+      "borderColor": 0
     }
   ]
 }

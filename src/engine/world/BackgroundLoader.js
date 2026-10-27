@@ -496,18 +496,10 @@ export const BackgroundLoader = {
         // A 'static' background is therefore authored as a single-entry `layers` array and uses
         // that same layer-0 texture key.
         const image = scene.add.image(INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2, `${manifest.id}:layer:0`).setOrigin(0.5, 0.5);
-        // FIX (full-screen static backgrounds): this used to be drawn at the source image's own
-        // native pixel size, anchored top-left — fine only when the art happens to exactly
-        // match INTERNAL_WIDTH x INTERNAL_HEIGHT (480x270). Any other size (e.g. a 256x118
-        // photo) left most of the canvas empty and the image sitting in the corner instead of
-        // filling/centering it. 'static' backgrounds are meant to be a full-screen slot (see
-        // this file's own BackgroundHandle doc and ScreenManifest's `background` field), so this
-        // now scales the image uniformly to COVER the internal canvas (like CSS
-        // `background-size: cover`): scale by whichever axis needs more enlargement, so the
-        // other axis overflows and gets centered/cropped rather than leaving bars. The source
-        // image's aspect ratio is preserved (no stretch/distortion).
-        const coverScale = Math.max(INTERNAL_WIDTH / image.width, INTERNAL_HEIGHT / image.height);
-        image.setScale(coverScale);
+        // Fit the complete image inside the screen without cropping or stretching. Any unused
+        // canvas area shows the renderer's background color.
+        const fitScale = Math.min(INTERNAL_WIDTH / image.width, INTERNAL_HEIGHT / image.height);
+        image.setScale(fitScale);
         displayObjects.push(image);
         tintables.push(image);
         break;

@@ -21,6 +21,7 @@ export const MANIFEST_PATHS = {
     'graphics/sprites/louisa/manifest.json',
     'graphics/sprites/soldier/manifest.json',
     'graphics/sprites/teach/manifest.json',
+    'graphics/sprites/computer/manifest.json',
   ],
   backgrounds: [
     'graphics/backgrounds/example_room/manifest.json',
