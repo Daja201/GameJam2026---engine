@@ -1,6 +1,7 @@
 import { ScreenController } from '../../engine/screens/ScreenController.js';
 import { Actor } from '../../engine/sprites/Actor.js';
 import { Companion } from '../companions/Companion.js';
+import { buildCityNavigationGrid, CityWanderer } from '../companions/CityWanderer.js';
 import { InteractiveObject } from '../../engine/world/InteractiveObject.js';
 import { isWithinRadius } from '../../engine/world/ProximityDetector.js';
 import { INTERNAL_HEIGHT, INTERNAL_WIDTH } from '../../engine/display/constants.js';
@@ -24,13 +25,17 @@ const TOAST_ACCENT_COMPLETE = 0x6fe39a;
 
 /** Walking speed, pixels per second. */
 const WALK_SPEED = 60;
-
-/** How close the player must be to a scrap pickup to interact with it. */
+/** How close the player must be to a dropped inventory item to pick it up. */
 const PICKUP_RADIUS = 20;
+/** How close the player must be to the "PC" prop to interact with it. */
+const INTERACT_RADIUS = 28;
 
 /** How close the cat must be to the player's punching hand for a fight-mode hit to land on it. */
 const CAT_HIT_RADIUS = 20;
 const WORLD_Y_SORT_DEPTH_RANGE = DEPTH.WORLD_FOREGROUND - DEPTH.WORLD_ENTITIES - 1;
+
+// Elevator (city) <-> underworld teleport system. Restored after going missing from this
+// controller — see the city/under tilemaps for the tile coordinates these refer to.
 const CITY_PORTAL_TILE = { x: 3, y: 0 };
 const UNDER_ARRIVAL_TILE = { x: 0, y: 7 };
 const PORTAL_FADE_MS = 500;
@@ -46,10 +51,10 @@ const WORK_QUEST_ID = 'get_to_work';
 /**
  * Quest content for this room (THIS controller's own example content — the quest engine,
  * `engine/quest/QuestManager.js`, knows nothing about any of these ids; see its module docstring
- * for the "no content coupling" reasoning). The `scrap_metal` item and `world` screen id here
+ * for the "no content coupling" reasoning). `world_pc`/the `world` screen id here
  * must exactly match what `/config/quests.default.json` references for those quests to progress.
  */
-const SCRAP_ITEM_ID = 'scrap_metal';
+const WORLD_PC_INTERACT_ID = 'world_pc';
 
 /** Mode names. In 'normal' mode E interacts with the world; in 'fight' mode E punches. */
 const MODE_NORMAL = 'normal';
@@ -151,9 +156,7 @@ export class WorldScreenController extends ScreenController {
       // these get built. Independent of the full-tile `collides` collider just above; a tile can
       // use either, both, or neither mechanic. Null (nothing collided against) when no placed
       // tile has a drawn collision shape, so this stays a no-op until you actually use one.
-      if (partialHitboxGroup) {
-        this._mapColliders.push(scene.physics.add.collider(this.actor.sprite, partialHitboxGroup));
-      }
+      if (partialHitboxGroup) this._mapColliders.push(scene.physics.add.collider(this.actor.sprite, partialHitboxGroup));
     }
 
     // Hitbox debug overlay (Settings > "Show Hitboxes (debug)"): draws a red rectangle around
@@ -195,13 +198,28 @@ export class WorldScreenController extends ScreenController {
       obstacleGroup: partialHitboxGroup,
     });
     this.cat.sprite.setCollideWorldBounds(Boolean(mapSize));
-    if (collisionLayer) {
-      this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, collisionLayer));
-    }
-    if (partialHitboxGroup) {
-      this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, partialHitboxGroup));
+    if (collisionLayer) this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, collisionLayer));
+    if (partialHitboxGroup) this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, partialHitboxGroup));
+    this.cityNpcs = [];
+    this.cityNpcColliders = [];
+    if (collisionLayer && mapSize) {
+      const navigationGrid = buildCityNavigationGrid(collisionLayer);
+      this.cityNpcs = Array.from({ length: 5 }, () => {
+        const npc = new CityWanderer(scene, navigationGrid);
+        this.cityNpcColliders.push(scene.physics.add.collider(npc.sprite, collisionLayer));
+        if (partialHitboxGroup) {
+          this.cityNpcColliders.push(scene.physics.add.collider(npc.sprite, partialHitboxGroup));
+        }
+        return npc;
+      });
     }
     this.soldier = new Actor(scene, 'soldier', spawnX + 200, spawnY + 40);
+    // NPC Louisa removed per request — this used to be an `Actor(scene, 'louisa', ...)` spawned
+    // here. Left out entirely rather than just hidden, since she's no longer wanted in the scene.
+    this.teacher = new Actor(scene, 'teach', spawnX - 120, spawnY + 40);
+    // "teach" is cutscene-only: present in the scene (keeps colliding/updating normally) but
+    // invisible until a cutscene explicitly shows it with `this.teacher.sprite.setVisible(true)`.
+    this.teacher.sprite.setVisible(false);
     // NOTE: blocking the player from walking THROUGH the cat is handled by `_keepCatOffPlayer`
     // (called from onUpdate, after both actor/cat `update()`), NOT by `physics.add.collider`.
     // An Arcade collider was tried here first and caused the camera to visibly shake while
@@ -213,19 +231,30 @@ export class WorldScreenController extends ScreenController {
     // the camera follows. `_keepCatOffPlayer` resolves the same overlap but only ever moves the
     // cat, so the player (and the camera) stay untouched by it.
 
-    // Scrap-metal pickups (this room's "getting some item" quest content). Only as many are
-    // spawned as are still needed: if a previous session
-    // already collected some (QuestManager persists collected-item counts across reloads — see
-    // QuestManager.save()/load()), re-entering the World shouldn't let the player "re-collect"
-    // past what the quest actually still requires.
-    const alreadyCollected = QuestManager.getItemCount(SCRAP_ITEM_ID);
-    const scrapSpawnPoints = [
-      { x: spawnX - 60, y: spawnY - 40 },
-      { x: spawnX + 90, y: spawnY + 50 },
-    ];
-    this.scrapPickups = scrapSpawnPoints
-      .slice(alreadyCollected)
-      .map((point) => this._createScrapPickup(point.x, point.y));
+    const pcX = spawnX + 40;
+    const pcY = spawnY;
+    // Visual for the trigger zone — InteractiveObject itself only builds the invisible zone.
+    this.pcVisual = scene.add.rectangle(pcX, pcY, 14, 14, 0x334455).setDepth(DEPTH.WORLD_ENTITIES);
+    this.pcVisual.setStrokeStyle(1, 0x8aa8ff);
+
+    this.pc = new InteractiveObject(scene, pcX, pcY, {
+      width: 20,
+      height: 20,
+      label: '[E] interact',
+      onInteract: () => {
+        // Quest progress and the actual gameplay effect (opening the Terminal screen) are
+        // independent of each other on purpose: QuestManager doesn't know or care WHY this
+        // target was interacted with, and the Terminal would open the same way with zero
+        // quests assigned to it.
+        QuestManager.triggerInteract(WORLD_PC_INTERACT_ID);
+        this.engine.screenManager.push('terminal');
+      },
+    });
+    // Blocks the player from walking through the PC prop. Separate from interact detection:
+    // `onUpdate` still decides whether `[E]` is usable via `isWithinRadius(INTERACT_RADIUS)`
+    // against `this.pc.zone`'s x/y (a distance check, not a physics overlap), so making the
+    // zone solid here doesn't change when the prompt shows or when interact fires.
+    scene.physics.add.collider(this.actor.sprite, this.pc.zone);
 
     this.droppedItems = [];
     this._onInventoryItemDropped = ({ itemId, amount }) => this._createDroppedItem(itemId, amount);
@@ -366,15 +395,18 @@ export class WorldScreenController extends ScreenController {
     this._syncActorOrigin();
     this.actor.update(time, delta);
     this.cat.update(time, delta);
+    for (const npc of this.cityNpcs) npc.update(time, delta);
     this.soldier.update(time, delta);
+    this.teacher.update(time, delta);
     this._keepCatOffPlayer();
     this._sortWorldEntities();
     this._checkPortalTransition();
     if (this.isTransitioning) return;
 
-    for (const pickup of this.scrapPickups) {
-      pickup.object.showPrompt(this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, pickup.object.zone, PICKUP_RADIUS));
-    }
+    // In fight mode E punches rather than interacts, so the "[E] interact" prompt would be
+    // misleading there — only show it in normal mode.
+    this.pc.showPrompt(this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, this.pc.zone, INTERACT_RADIUS));
+
     for (const droppedItem of this.droppedItems) {
       droppedItem.object.showPrompt(
         this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, droppedItem.object.zone, PICKUP_RADIUS),
@@ -410,7 +442,7 @@ export class WorldScreenController extends ScreenController {
     return createMapOverlay(this.engine.scene, {
       follow: this.actor.sprite,
       mapSize: this.mapSize,
-      tileSize: this.background.getTileSize(),
+      tileSize: this.background?.getTileSize?.(),
       ignore: [
         ...this.hudPanel.getDisplayObjects(),
         this.modeLabel,
@@ -639,6 +671,9 @@ export class WorldScreenController extends ScreenController {
     }
     this._tileDebugGraphic?.setVisible(SettingsStore.get('video.hitboxDebug'));
     this.mapOverlay = this._createMapOverlay();
+    // Note: city-only NPC wanderers (this.cityNpcs) and the teacher/soldier actors are NOT
+    // rebuilt here — they're city-only dressing and simply keep existing (off-camera, harmless)
+    // while the underworld background is active, same as before this transition logic existed.
   }
 
   /**
@@ -653,8 +688,10 @@ export class WorldScreenController extends ScreenController {
       this.actor.sprite,
       // Keep the cat in the exact same ground-Y depth ordering as the player.
       this.cat.sprite,
+      ...this.cityNpcs.map((npc) => npc.sprite),
       this.soldier.sprite,
-      ...this.scrapPickups.map(({ visual }) => visual),
+      this.teacher.sprite,
+      this.pcVisual,
       ...this.droppedItems.flatMap(({ visual, icon, countLabel }) => [visual, icon, countLabel]),
     ];
 
@@ -845,38 +882,6 @@ export class WorldScreenController extends ScreenController {
   }
 
   /**
-   * Builds one scrap-metal pickup: a small visible prop plus the InteractiveObject trigger zone,
-   * same construction shape as the PC above. On interact it credits `QuestManager.collectItem`
-   * once, then removes itself (both the visual and the trigger zone) so it can't be "collected"
-   * twice — `QuestManager.collectItem` itself has no notion of a single-use world pickup, that
-   * bookkeeping belongs entirely to this piece of example content.
-   * @private
-   * @param {number} x
-   * @param {number} y
-   * @returns {{ object: InteractiveObject, visual: Phaser.GameObjects.Rectangle }}
-   */
-  _createScrapPickup(x, y) {
-    const { scene } = this.engine;
-    const visual = scene.add.rectangle(x, y, 8, 8, 0xd4a23a).setDepth(DEPTH.WORLD_ENTITIES);
-    visual.setStrokeStyle(1, 0xffe8a0);
-
-    const entry = { object: null, visual };
-    entry.object = new InteractiveObject(scene, x, y, {
-      width: 16,
-      height: 16,
-      label: '[E] pick up',
-      onInteract: () => {
-        QuestManager.collectItem(SCRAP_ITEM_ID, 1);
-        entry.object.destroy();
-        entry.visual.destroy();
-        const index = this.scrapPickups.indexOf(entry);
-        if (index !== -1) this.scrapPickups.splice(index, 1);
-      },
-    });
-    return entry;
-  }
-
-  /**
    * Spawns an item stack dropped from the inventory at the player's feet. The world object is
    * retained if inventory capacity prevents the full stack from being picked up again.
    * @private
@@ -966,7 +971,6 @@ export class WorldScreenController extends ScreenController {
    * @returns {void}
    */
   onInput(action, event) {
-    if (this.isTransitioning) return;
     if (action === 'toggle-map') {
       this.mapOverlay?.toggleFull();
     } else if (action === 'toggle-mode') {
@@ -981,9 +985,7 @@ export class WorldScreenController extends ScreenController {
     } else if (action === 'interact' && this.mode === MODE_NORMAL) {
       // FIGHT mode's E (punch) is handled by continuous polling in onUpdate instead — see
       // class-level INPUT DESIGN NOTE for why the discrete action isn't used for it.
-      for (const pickup of this.scrapPickups) {
-        if (isWithinRadius(this.actor.sprite, pickup.object.zone, PICKUP_RADIUS)) pickup.object.trigger();
-      }
+      if (isWithinRadius(this.actor.sprite, this.pc.zone, INTERACT_RADIUS)) this.pc.trigger();
       for (const droppedItem of [...this.droppedItems]) {
         if (isWithinRadius(this.actor.sprite, droppedItem.object.zone, PICKUP_RADIUS)) droppedItem.object.trigger();
       }
@@ -1001,16 +1003,46 @@ export class WorldScreenController extends ScreenController {
       // ScreenManager push flow (this controller's onPause/onResume already handle that).
       this.engine.screenManager.push('pause_menu');
     } else if (action === 'debug-reset-loop') {
-      // DEV-ONLY, moved off of Backspace/'cancel' (see above) now that Backspace is the
-      // pause-menu key — this used to be exactly the 'cancel' branch's body. Bound to R in
-      // config/controls.default.json's "movement" profile. Kept as a dev/testing affordance
-      // (not deleted) per the original ASSUMPTION this replaces: module 09 explicitly leaves
-      // the "what resets a loop" decision to this example content (its own non-goal); this is
-      // simply a different, clearly-separate trigger for the same existing behavior.
-      LoopManager.startNewLoop();
-      LoopManager.reset();
-      FxManager.flash(this.engine.scene, '#ffffff', 150);
+      // DEV-ONLY, bound to R (config/controls.default.json's "movement" profile).
+      // Framed as "you died, respawn" rather than an exposed loop-reset mechanic: a short
+      // message, then a full reload. QuestManager.resetAll() clears quest progress AND the
+      // main inventory grid (it delegates to InventoryManager.resetAll() internally) — the
+      // cat's own slots are untouched by that call on purpose, so whatever was stashed there
+      // survives, per storycontext.md's "The Cat" section. The reload itself then rebuilds
+      // the whole world/scene state from scratch, same spawn point as any fresh boot.
+      QuestManager.resetAll();
+      this._showRespawnMessage();
     }
+  }
+
+  /**
+   * Brief "you died" beat before reloading — in-fiction framing for the reset (soldiers catch
+   * the player, they're put under, they wake up back home), not a visible game-mechanic prompt.
+   * @private
+   * @returns {void}
+   */
+  _showRespawnMessage() {
+    const { scene } = this.engine;
+    this.actor.sprite.body.setVelocity(0, 0);
+
+    const overlay = scene.add.rectangle(0, 0, INTERNAL_WIDTH * 3, INTERNAL_HEIGHT * 3, 0x000000, 1)
+      .setScrollFactor(0)
+      .setDepth(DEPTH.UI_HUD + 10)
+      .setAlpha(0);
+    const text = scene.add.text(INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2, 'you just died..', {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      color: '#ffffff',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.UI_HUD + 11).setAlpha(0);
+
+    scene.tweens.add({
+      targets: [overlay, text],
+      alpha: 1,
+      duration: 400,
+      onComplete: () => {
+        scene.time.delayedCall(700, () => window.location.reload());
+      },
+    });
   }
 
   /**
@@ -1038,16 +1070,6 @@ export class WorldScreenController extends ScreenController {
   onExit() {
     AudioManager.stopMusic();
     if (this.engine.worldController === this) this.engine.worldController = null;
-    if (this._portalTransitionOverlay) {
-      this.engine.scene.tweens.killTweensOf(this._portalTransitionOverlay);
-      this._portalTransitionOverlay.destroy();
-      this._portalTransitionOverlay = null;
-    }
-    this._portalTransitionTimer?.remove(false);
-    for (const collider of this._mapColliders) {
-      this.engine.scene.physics.world.removeCollider(collider);
-    }
-    if (this._backgroundChanged) this.background?.destroy();
     this._unsubscribeHitboxDebug?.();
     this.engine.scene.physics.world.drawDebug = false; // stop postUpdate from touching the graphic we're about to destroy
     this._physicsDebugGraphic.destroy();
@@ -1065,13 +1087,20 @@ export class WorldScreenController extends ScreenController {
     QuestManager.events.off('quest:completed', this._onQuestCompleted);
     InventoryManager.events.off('inventory:item-dropped', this._onInventoryItemDropped);
     this.toasts.destroy();
+    for (const collider of this.cityNpcColliders) {
+      this.engine.scene.physics.world.removeCollider(collider);
+    }
+    for (const collider of this._mapColliders) {
+      this.engine.scene.physics.world.removeCollider(collider);
+    }
+    this._portalTransitionOverlay?.destroy();
     this.actor.sprite.destroy();
     this.cat.destroy();
+    for (const npc of this.cityNpcs) npc.destroy();
     this.soldier.sprite.destroy();
-    for (const pickup of this.scrapPickups) {
-      pickup.object.destroy();
-      pickup.visual.destroy();
-    }
+    this.teacher.sprite.destroy();
+    this.pc.destroy();
+    this.pcVisual.destroy();
     for (const droppedItem of this.droppedItems) {
       droppedItem.object.destroy();
       droppedItem.visual.destroy();

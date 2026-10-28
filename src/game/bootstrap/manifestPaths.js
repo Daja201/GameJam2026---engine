@@ -18,10 +18,10 @@ export const MANIFEST_PATHS = {
   sprites: [
     'graphics/sprites/main_char/manifest.json',
     'graphics/sprites/cat_companion/manifest.json',
-    'graphics/sprites/louisa/manifest.json',
     'graphics/sprites/soldier/manifest.json',
     'graphics/sprites/teach/manifest.json',
     'graphics/sprites/computer/manifest.json',
+    'graphics/sprites/npc1/manifest.json',
   ],
   backgrounds: [
     'graphics/backgrounds/example_room/manifest.json',

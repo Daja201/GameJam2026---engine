@@ -1,14 +1,18 @@
-window: you are Luca, you just woke up another day, you should get to work like every day
+--TUTORIAL
+window: You just woke up like every other day. It is about 20 minutes to work so you should hurry up. There, take the elevator.
 GET TO ELEVATOR
 GET TO WORK DOOR
+//PLAY CUTSCENE OF SOLDIERS GETTING HER
 GO ASK NPC's IF THEY CAN HELP YOU WHERE SOLDIERS TOOK Louisa
 1st NPC
 2nd NPC
 3rd NPC - shop guy, sells monster, you ask him, he tells you to go to SUB maybe they'll know
 GO TO HIM SPECIFIED LOCATION
 GO UNDERGROUND
+--UNDERGROUND
 MEET HACKERS
---HACKING TUTORIAL
+//hacking tutorial
+--MISSION
 you were working in a massive company developing for government
 GO BACK TO YOUR WORK
 KICK SECURITY

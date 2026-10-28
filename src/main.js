@@ -204,13 +204,18 @@ class BootScene extends Phaser.Scene {
       // config lists — deferred until after the World screen actually exists so its toast
       // notifications (subscribed in WorldScreenController.onEnter) can show them.
       engine.screenManager.switchTo('world').then(() => {
-        for (const questId of questsConfigJson.autoStart ?? []) {
+        const autoStartQuestIds = questsConfigJson.autoStart ?? [];
+        for (const questId of autoStartQuestIds) {
           if (!QuestManager.isQuestActive(questId) && !QuestManager.isQuestCompleted(questId)) {
             QuestManager.assignQuest(questId);
           }
         }
+        const firstAutoStartQuestId = autoStartQuestIds[0];
+        if (firstAutoStartQuestId && QuestManager.isQuestActive(firstAutoStartQuestId)) {
+          QuestManager.setTrackedQuest(firstAutoStartQuestId);
+        }
         engine.showPhaseWindow(
-          'You have woke up. Follow your minimap to get to elevator and to work'
+          'You just woke up like every other day. It is about 20 minutes to work so you should hurry up. There, take the elevator.'
         );
       });
     });

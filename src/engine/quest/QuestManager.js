@@ -240,10 +240,9 @@ class QuestManagerImpl {
       status: 'active', startedAt: Date.now(), completedAt: null, objectives,
     });
 
-    // A HUD should always have *something* to show when any quest is active (see `setTrackedQuest`'s
-    // docstring) — the simplest way to guarantee that without a UI having to think about it is to
-    // auto-track the first quest assigned whenever nothing is currently tracked.
-    if (this._trackedQuestId === null) this._trackedQuestId = questId;
+    // Newly assigned quests become the HUD's focus. Re-assigning an already-active quest above
+    // remains idempotent and does not change the player's chosen tracked quest.
+    this._trackedQuestId = questId;
 
     this.events.emit('quest:assigned', { id: questId });
     this._touch();
@@ -255,10 +254,10 @@ class QuestManagerImpl {
    * like "Quest: Scrap Run — Collect 2x Scrap Metal (1/2)". Purely a UI convenience: it changes
    * nothing about quest state or progress, it only remembers which one the player (or whichever
    * system calls this, e.g. a quest log screen letting the player pick) wants kept in view.
-   * `assignQuest` auto-tracks a quest whenever nothing is tracked yet, and `_progressObjective`
-   * auto-retargets to another active quest if the tracked one just completed — between those two,
-   * a tracked quest is shown whenever at least one quest is active, with no caller having to
-   * manage that themselves; passing `null` explicitly clears it (shows nothing).
+   * `assignQuest` tracks every newly assigned quest, and `_progressObjective` auto-retargets to
+   * another active quest if the tracked one just completed — between those two, a tracked quest is
+   * shown whenever at least one quest is active, with no caller having to manage that themselves;
+   * passing `null` explicitly clears it (shows nothing).
    * @param {string|null} questId - must be a currently ACTIVE quest id, or null to clear
    * @returns {void}
    * @throws {Error} if `questId` is not null and isn't currently active

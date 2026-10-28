@@ -5,7 +5,7 @@
   "backgroundColor": "#101522",
   "anchor": "center",
   "modal": true,
-  "size": { "width": 160, "height": 90 },
+  "size": { "width": 300, "height": 120 },
   "layout": "free",
   "elements": [
     {
@@ -13,10 +13,11 @@
       "type": "scrollable-text",
       "x": 16,
       "y": 12,
-      "width": 128,
-      "height": 42,
-      "fontSize": "8px",
-      "color": "#d8e8ff",
+      "width": 268,
+      "height": 68,
+      "fontFamily": "\"Ubuntu Mono\", monospace",
+      "fontSize": "12px",
+      "color": "#ffffff",
       "text": ""
     },
     {
@@ -24,8 +25,8 @@
       "type": "button",
       "text": "Close",
       "action": "close-window",
-      "x": 44,
-      "y": 64,
+      "x": 114,
+      "y": 92,
       "width": 72,
       "height": 16
     }

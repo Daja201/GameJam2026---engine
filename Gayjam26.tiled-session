@@ -24,11 +24,11 @@
             "scaleInEditor": 0.99
         },
         "graphics/backgrounds/city/city.json": {
-            "scale": 0.6372,
+            "scale": 0.8989,
             "selectedLayer": 2,
             "viewCenter": {
-                "x": 195.38606403013188,
-                "y": 253.4526051475204
+                "x": 645.7892980309266,
+                "y": 260.8744020469463
             }
         },
         "graphics/backgrounds/city/city.json#CityTileset": {
@@ -60,8 +60,8 @@
             "scale": 0.85,
             "selectedLayer": 1,
             "viewCenter": {
-                "x": 430.00000000000006,
-                "y": 178.23529411764707
+                "x": 617.0588235294117,
+                "y": 202.94117647058823
             }
         },
         "graphics/backgrounds/under/under.tmj#city": {
