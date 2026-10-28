@@ -3,8 +3,9 @@ import { DEPTH } from '../display/DepthLayers.js';
 /**
  * Small comic-style speech bubble: a white rounded rectangle with a dark outline, a short
  * downward tail, and a line of text — positioned above a character's head (e.g. during a
- * cutscene). Self-contained, scene-scoped, screen-fixed (`setScrollFactor(0)`); the caller is
- * responsible for calling `destroy()` when done, or pass `holdMs` to auto-destroy.
+ * cutscene). Self-contained and scene-scoped; screen-fixed by default, or world-anchored with
+ * `scrollFactor: 1`. The caller is responsible for calling `destroy()` when done, or pass
+ * `holdMs` to auto-destroy.
  *
  * Sibling to `ToastNotifier.js` (same "small factory, caller owns the handle" shape), styled to
  * read as a comic bubble rather than a HUD panel: white fill instead of a dark panel, a tail
@@ -24,11 +25,13 @@ const TEXT_COLOR = '#1a1a2a';
 
 /**
  * @param {Phaser.Scene} scene
- * @param {number} tipX - x of the tail's tip, in screen space (usually the character's head center)
- * @param {number} tipY - y of the tail's tip, in screen space (usually just above the character's head)
+ * @param {number} tipX - x of the tail's tip in the coordinate space selected by `scrollFactor`
+ * @param {number} tipY - y of the tail's tip in the coordinate space selected by `scrollFactor`
  * @param {string} text
- * @param {{depth?: number, holdMs?: number, onDestroy?: () => void}} [opts] - `depth` defaults to
- *   `DEPTH.FX_OVERLAY + 2` (above a full-screen cutscene backdrop/actors at `FX_OVERLAY`/`+1`);
+ * @param {{depth?: number, holdMs?: number, onDestroy?: () => void, scrollFactor?: number, keepInView?: boolean}} [opts]
+ *   `depth` defaults to `DEPTH.FX_OVERLAY + 2` (above a full-screen cutscene backdrop/actors at `FX_OVERLAY`/`+1`);
+ *   `scrollFactor` defaults to 0 for screen-fixed cutscene dialogue;
+ *   `keepInView` clamps the bubble inside the main camera viewport;
  *   `holdMs`, if given, auto-destroys the bubble after that many ms and then calls `onDestroy`.
  * @returns {{ container: Phaser.GameObjects.Container, destroy: () => void }}
  */
@@ -59,8 +62,24 @@ export function createSpeechBubble(scene, tipX, tipY, text, opts = {}) {
 
   label.setPosition(0, boxTop + boxHeight / 2);
 
-  const container = scene.add.container(tipX, tipY, [graphics, label]);
-  container.setScrollFactor(0);
+  let containerX = tipX;
+  let containerY = tipY;
+  if (opts.keepInView) {
+    const view = scene.cameras.main.worldView;
+    containerX = Phaser.Math.Clamp(
+      containerX,
+      view.left + boxWidth / 2 + 2,
+      view.right - boxWidth / 2 - 2,
+    );
+    containerY = Phaser.Math.Clamp(
+      containerY,
+      view.top + boxHeight + TAIL_HEIGHT + 2,
+      view.bottom - 2,
+    );
+  }
+
+  const container = scene.add.container(containerX, containerY, [graphics, label]);
+  container.setScrollFactor(opts.scrollFactor ?? 0);
   container.setDepth(opts.depth ?? DEPTH.FX_OVERLAY + 2);
 
   let destroyed = false;

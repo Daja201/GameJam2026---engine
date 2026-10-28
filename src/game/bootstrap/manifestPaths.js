@@ -23,6 +23,9 @@ export const MANIFEST_PATHS = {
     'graphics/sprites/computer/manifest.json',
     'graphics/sprites/npc1/manifest.json',
     'graphics/sprites/npc2/manifest.json',
+    'graphics/sprites/npc3/manifest.json',
+    'graphics/sprites/npc4/manifest.json',
+    'graphics/sprites/hacker/manifest.json',
     // Re-added for the "get to work" cutscene (WorldScreenController._playWorkCutscene) — the
     // sprite art was always here (graphics/sprites/louisa/), it just wasn't wired into the
     // preload list since the last in-world Louisa Actor was removed.

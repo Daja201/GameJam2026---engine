@@ -77,7 +77,7 @@
     {
       "id": "ask_local_3",
       "title": "Ask Other Locals for Help",
-      "description": "Find the local at [27, 20] and ask for help.",
+      "description": "Ask the local at [27, 20] for help.",
       "objectives": [
         {
           "id": "find_local_3",
@@ -86,7 +86,7 @@
           "x": 880,
           "y": 656,
           "radius": 18,
-          "description": "Find the local at [27, 20]"
+          "description": "Ask the local at [27, 20] for help."
         }
       ]
     }

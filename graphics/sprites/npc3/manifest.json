@@ -1,0 +1,24 @@
+{
+  "id": "npc3",
+  "display_name": "NPC 3",
+  "type": "npc",
+  "frame_size": { "width": 32, "height": 32 },
+  "pivot": { "x": 0.5, "y": 0.9 },
+  "directionality": {
+    "mode": "8-dir",
+    "directions": [
+      "south", "south-east", "east", "north-east",
+      "north", "north-west", "west", "south-west"
+    ]
+  },
+  "states": {
+    "idle": {
+      "type": "static-per-direction",
+      "frame_rate": 1,
+      "loop": true,
+      "source": "Idle/rotations/{direction}.png"
+    }
+  },
+  "hitbox": { "width": 14, "height": 10, "margin_bottom": 1 },
+  "scale": 1
+}

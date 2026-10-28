@@ -1,5 +1,6 @@
 import { ScreenController } from '../../engine/screens/ScreenController.js';
 import { Actor } from '../../engine/sprites/Actor.js';
+import { resolveDirection } from '../../engine/sprites/DirectionResolver.js';
 import { Companion } from '../companions/Companion.js';
 import { buildCityNavigationGrid, CityWanderer } from '../companions/CityWanderer.js';
 import { CitySoldierGroup } from '../companions/CitySoldierGroup.js';
@@ -44,6 +45,7 @@ const CITY_NPC_SPAWN_GAP_RANDOM_MS = 5500;
 // Elevator (city) <-> underworld teleport system. Restored after going missing from this
 // controller — see the city/under tilemaps for the tile coordinates these refer to.
 const CITY_PORTAL_TILE = { x: 3, y: 0 };
+const TURRET_DOOR_TILES = [{ x: 0, y: 14 }, { x: 1, y: 14 }];
 const UNDER_ARRIVAL_TILE = { x: 0, y: 7 };
 const PORTAL_FADE_MS = 500;
 const CITY_SHORTCUT_FADE_MS = 900;
@@ -130,6 +132,7 @@ export class WorldScreenController extends ScreenController {
     this._backgroundChanged = false;
     this._mapColliders = [];
     this._cityPortalLocked = false;
+    this._turretDoorLocked = false;
     this._underExitArmed = false;
     this.isTransitioning = false;
     this._currentArea = 'city';
@@ -206,6 +209,17 @@ export class WorldScreenController extends ScreenController {
     this.cityNpcScheduled = new Set();
     this.cityNpcSpawnTimer = 0;
     this.citySoldierGroups = [];
+    this.cityNpc3 = null;
+    this.cityNpc4 = null;
+    this.hacker = null;
+    this._npc3ConversationActive = false;
+    this._npc3ConversationComplete = false;
+    this._npc4ConversationActive = false;
+    this._npc4ConversationComplete = false;
+    this._hackerConversationActive = false;
+    this._hackerConversationComplete = false;
+    this._localConversationBubble = null;
+    this._localConversationTimer = null;
     if (collisionLayer && mapSize) {
       const navigationGrid = buildCityNavigationGrid(collisionLayer);
       this.cityNavigationGrid = navigationGrid;
@@ -227,6 +241,29 @@ export class WorldScreenController extends ScreenController {
         new CitySoldierGroup(scene, navigationGrid, { x: 2, y: 24 }),
         new CitySoldierGroup(scene, navigationGrid, { x: 8, y: 25 }),
       ];
+      const npc3Tile = { x: 11, y: 11 };
+      this.cityNpc3 = new Actor(
+        scene,
+        'npc3',
+        navigationGrid.origin.x + (npc3Tile.x + 0.5) * navigationGrid.tileWidth,
+        navigationGrid.origin.y + (npc3Tile.y + 0.5) * navigationGrid.tileHeight,
+      );
+      this.cityNpc3.setDirection('south-west');
+      const npc4Tile = { x: 0, y: 16 };
+      this.cityNpc4 = new Actor(
+        scene,
+        'npc4',
+        navigationGrid.origin.x + (npc4Tile.x + 0.5) * navigationGrid.tileWidth,
+        navigationGrid.origin.y + (npc4Tile.y + 0.5) * navigationGrid.tileHeight,
+      );
+      this.cityNpc4.setDirection('east');
+      const hackerTile = { x: 27, y: 20 };
+      this.hacker = new Actor(
+        scene,
+        'hacker',
+        navigationGrid.origin.x + (hackerTile.x + 0.5) * navigationGrid.tileWidth,
+        navigationGrid.origin.y + (hackerTile.y + 0.5) * navigationGrid.tileHeight,
+      );
     }
     // NPC Louisa removed per request — this used to be an `Actor(scene, 'louisa', ...)` spawned
     // here. Left out entirely rather than just hidden, since she's no longer wanted in the scene.
@@ -394,6 +431,13 @@ export class WorldScreenController extends ScreenController {
     if (this.mapOverlay?.isOpen) {
       this.actor.sprite.body.setVelocity(0, 0); // feet planted — see movement note on MODE_FIGHT below
       this.actor.playState('idle');
+    } else if (
+      this._npc3ConversationActive
+      || this._npc4ConversationActive
+      || this._hackerConversationActive
+    ) {
+      this.actor.sprite.body.setVelocity(0, 0);
+      this.actor.playState('idle');
     } else if (this.mode === MODE_FIGHT) {
       this._updateFightMode(delta);
     } else {
@@ -407,6 +451,12 @@ export class WorldScreenController extends ScreenController {
       for (const npc of this.cityNpcs) npc.update(time, delta);
       this._updateCityNpcSpawns(delta);
       for (const group of this.citySoldierGroups) group.update(time, delta);
+      this.cityNpc3?.update(time, delta);
+      this.cityNpc4?.update(time, delta);
+      if (this.hacker) {
+        this._trackPlayerWithHacker();
+        this.hacker.update(time, delta);
+      }
     }
     this.teacher.update(time, delta);
     this._keepCatOffPlayer();
@@ -422,6 +472,9 @@ export class WorldScreenController extends ScreenController {
 
     // "Getting somewhere" quest progress: fed every frame, same way LoopManager/FxManager usage
     // below is — QuestManager itself does the cheap no-op check when nothing's listening.
+    this._tryStartNpc3Conversation();
+    this._tryStartNpc4Conversation();
+    this._tryStartHackerConversation();
     QuestManager.reportLocation('world', this.actor.sprite.x, this.actor.sprite.y);
     const trackedLocation = QuestManager.getTrackedQuest()?.objectives.find((objective) => (
       objective.type === 'reach_location'
@@ -471,6 +524,22 @@ export class WorldScreenController extends ScreenController {
     if (this._currentArea === 'city') {
       const tileX = Math.floor(body.center.x / tileSize.width);
       const tileY = Math.floor(body.center.y / tileSize.height);
+      const atTurretDoor = TURRET_DOOR_TILES.some((tile) => (
+        Phaser.Math.Distance.Between(
+          body.center.x,
+          body.center.y,
+          (tile.x + 0.5) * tileSize.width,
+          (tile.y + 0.5) * tileSize.height,
+        ) <= tileSize.width * 0.75
+      ));
+      if (!atTurretDoor) this._turretDoorLocked = false;
+      else if (!this._turretDoorLocked) {
+        this._turretDoorLocked = true;
+        QuestManager.resetAll();
+        this._showRespawnMessage('you were shot by automatic turret', 2200);
+        return;
+      }
+
       if (this.moveKeys.up.isDown && body.blocked.up) {
         const lowerIndex = CITY_SHORTCUTS.lower.findIndex(
           (tile) => tile.x === tileX && tileY >= tile.y - 1 && tileY <= tile.y,
@@ -653,8 +722,14 @@ export class WorldScreenController extends ScreenController {
       this.cityNpcSpawnQueue = [...this.cityNpcs];
       this.cityNpcScheduled = new Set(this.cityNpcSpawnQueue);
       for (const group of this.citySoldierGroups) group.setVisible(false);
+      this.cityNpc3?.sprite.setVisible(false);
+      this.cityNpc4?.sprite.setVisible(false);
+      this.hacker?.sprite.setVisible(false);
     } else {
       for (const group of this.citySoldierGroups) group.setVisible(true);
+      this.cityNpc3?.sprite.setVisible(true);
+      this.cityNpc4?.sprite.setVisible(true);
+      this.hacker?.sprite.setVisible(true);
     }
 
     this.mapOverlay?.destroy();
@@ -1005,6 +1080,9 @@ export class WorldScreenController extends ScreenController {
       this.cat.sprite,
       ...this.cityNpcs.map((npc) => npc.sprite),
       ...this.citySoldierGroups.flatMap((group) => group.actors.map((actor) => actor.sprite)),
+      ...(this.cityNpc3 ? [this.cityNpc3.sprite] : []),
+      ...(this.cityNpc4 ? [this.cityNpc4.sprite] : []),
+      ...(this.hacker ? [this.hacker.sprite] : []),
       this.teacher.sprite,
       ...this.droppedItems.flatMap(({ visual, icon, countLabel }) => [visual, icon, countLabel]),
     ];
@@ -1307,6 +1385,190 @@ export class WorldScreenController extends ScreenController {
   }
 
   /**
+   * Starts the one-time exchange with NPC3 when the first local-help quest is active.
+   * @private
+   * @returns {void}
+   */
+  _tryStartNpc3Conversation() {
+    if (
+      this._currentArea !== 'city'
+      || !this.cityNpc3
+      || this._npc3ConversationActive
+      || this._npc3ConversationComplete
+      || !QuestManager.isQuestActive(LOCAL_HELP_QUEST_IDS[0])
+      || !isWithinRadius(this.actor.sprite, this.cityNpc3.sprite, 18)
+    ) return;
+
+    this._npc3ConversationActive = true;
+    this.actor.sprite.body.setVelocity(0, 0);
+    this.actor.playState('idle');
+
+    const dx = this.actor.sprite.x - this.cityNpc3.sprite.x;
+    const dy = this.actor.sprite.y - this.cityNpc3.sprite.y;
+    if (dx === 0 && dy === 0) {
+      this.cityNpc3.setDirection('south');
+      this.actor.setDirection('north');
+    } else {
+      this.cityNpc3.setDirectionFromVector(dx, dy, 'idle');
+      this.actor.setDirectionFromVector(-dx, -dy, 'idle');
+    }
+
+    this._showLocalConversationLine(this.cityNpc3, 'What do you want?', 1400, () => {
+      this._showLocalConversationLine(
+        this.actor,
+        'Do you know where the soldiers took Louisa?',
+        2100,
+        () => {
+          this.cityNpc3.setDirection('south-west');
+          this._showLocalConversationLine(this.cityNpc3, '[...]', 1800, () => {
+            this._npc3ConversationComplete = true;
+            this._npc3ConversationActive = false;
+          });
+        },
+      );
+    });
+  }
+
+  /**
+   * Shows one world-anchored NPC conversation line and advances after it is dismissed.
+   * @private
+   * @param {Actor} speaker
+   * @param {string} text
+   * @param {number} duration
+   * @param {() => void} onDone
+   * @returns {void}
+   */
+  _showLocalConversationLine(speaker, text, duration, onDone) {
+    const { scene } = this.engine;
+    this._localConversationBubble?.destroy();
+    this._localConversationBubble = createSpeechBubble(
+      scene,
+      speaker.sprite.x,
+      speaker.sprite.y - speaker.sprite.displayHeight * 0.95,
+      text,
+      { scrollFactor: 1, keepInView: true },
+    );
+    this._localConversationTimer?.remove(false);
+    this._localConversationTimer = scene.time.delayedCall(duration, () => {
+      this._localConversationBubble?.destroy();
+      this._localConversationBubble = null;
+      this._localConversationTimer = null;
+      onDone();
+    });
+  }
+
+  /**
+   * Starts NPC4's one-time exchange during the second local-help quest.
+   * @private
+   * @returns {void}
+   */
+  _tryStartNpc4Conversation() {
+    if (
+      this._currentArea !== 'city'
+      || !this.cityNpc4
+      || this._npc3ConversationActive
+      || this._npc4ConversationActive
+      || this._npc4ConversationComplete
+      || !QuestManager.isQuestActive(LOCAL_HELP_QUEST_IDS[1])
+      || !isWithinRadius(this.actor.sprite, this.cityNpc4.sprite, 18)
+    ) return;
+
+    this._npc4ConversationActive = true;
+    this.actor.sprite.body.setVelocity(0, 0);
+    this.actor.playState('idle');
+
+    const dx = this.actor.sprite.x - this.cityNpc4.sprite.x;
+    const dy = this.actor.sprite.y - this.cityNpc4.sprite.y;
+    if (dx === 0 && dy === 0) {
+      this.actor.setDirection('north');
+    } else {
+      this.actor.setDirectionFromVector(-dx, -dy, 'idle');
+    }
+
+    this._showLocalConversationLine(
+      this.actor,
+      'Do you know where the soldiers took Louisa?',
+      2100,
+      () => {
+        this._showLocalConversationLine(
+          this.cityNpc4,
+          "They took her to the door on my left, but they were armed. Don't go there. Ask my friend at [27, 20] for help.",
+          4200,
+          () => {
+            this._npc4ConversationComplete = true;
+            this._npc4ConversationActive = false;
+          },
+        );
+      },
+    );
+  }
+
+  /**
+   * Turns the hacker toward the player while the third local-help quest is active.
+   * @private
+   * @returns {void}
+   */
+  _trackPlayerWithHacker() {
+    if (
+      !this.hacker
+      || !QuestManager.isQuestActive(LOCAL_HELP_QUEST_IDS[2])
+      || this._hackerConversationComplete
+      || this._hackerConversationActive
+    ) return;
+
+    const dx = this.actor.sprite.x - this.hacker.sprite.x;
+    const dy = this.actor.sprite.y - this.hacker.sprite.y;
+    if (dx === 0 && dy === 0) return;
+
+    const targetDirection = resolveDirection(dx, dy, this.hacker.manifest.directionality.mode);
+    if (targetDirection !== this.hacker.currentDirection) this.hacker.setDirection(targetDirection);
+  }
+
+  /**
+   * Starts the hacker conversation when the third local-help quest brings the player to him.
+   * @private
+   * @returns {void}
+   */
+  _tryStartHackerConversation() {
+    if (
+      this._currentArea !== 'city'
+      || !this.hacker
+      || this._hackerConversationActive
+      || this._hackerConversationComplete
+      || !QuestManager.isQuestActive(LOCAL_HELP_QUEST_IDS[2])
+      || !isWithinRadius(this.actor.sprite, this.hacker.sprite, 18)
+    ) return;
+
+    this._hackerConversationActive = true;
+    this.actor.sprite.body.setVelocity(0, 0);
+    this.actor.playState('idle');
+
+    const dx = this.actor.sprite.x - this.hacker.sprite.x;
+    const dy = this.actor.sprite.y - this.hacker.sprite.y;
+    if (dx !== 0 || dy !== 0) {
+      this.hacker.setDirectionFromVector(dx, dy, 'idle');
+      this.actor.setDirectionFromVector(-dx, -dy, 'idle');
+    }
+
+    this._showLocalConversationLine(
+      this.actor,
+      'Some guy pointed me to you. He says you can help me get my friend back.',
+      3000,
+      () => {
+        this._showLocalConversationLine(
+          this.hacker,
+          "Yeah, go meet us in SUB. Here's the location. Be careful and make sure nobody follows you. An enemy of our enemy is a friend of ours.",
+          7000,
+          () => {
+            this._hackerConversationComplete = true;
+            this._hackerConversationActive = false;
+          },
+        );
+      },
+    );
+  }
+
+  /**
    * @param {string} action
    * @param {{action: string, originalEvent: object}} event
    * @returns {void}
@@ -1315,6 +1577,11 @@ export class WorldScreenController extends ScreenController {
     // Game must be fully unresponsive to keypresses while a cutscene plays (map toggle, pause
     // menu, interact, inventory — all of it).
     if (this._cutsceneActive) return;
+    if (
+      this._npc3ConversationActive
+      || this._npc4ConversationActive
+      || this._hackerConversationActive
+    ) return;
     if (action === 'toggle-map') {
       this.mapOverlay?.toggleFull();
     } else if (action === 'toggle-mode') {
@@ -1364,9 +1631,11 @@ export class WorldScreenController extends ScreenController {
    * @private
    * @returns {void}
    */
-  _showRespawnMessage() {
+  _showRespawnMessage(subtitle = '', restartDelay = 700) {
     const { scene } = this.engine;
     this.actor.sprite.body.setVelocity(0, 0);
+    this.actor.sprite.body.enable = false;
+    this.isTransitioning = true;
 
     const overlay = scene.add.rectangle(0, 0, INTERNAL_WIDTH * 3, INTERNAL_HEIGHT * 3, 0x000000, 1)
       .setScrollFactor(0)
@@ -1378,12 +1647,21 @@ export class WorldScreenController extends ScreenController {
       color: '#ffffff',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.UI_HUD + 11).setAlpha(0);
 
+    const subtitleText = subtitle
+      ? scene.add.text(INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2 + 16, subtitle, {
+        fontFamily: 'monospace',
+        fontSize: '8px',
+        color: '#ffffff',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.UI_HUD + 11).setAlpha(0)
+      : null;
+    const fadeTargets = subtitleText ? [overlay, text, subtitleText] : [overlay, text];
+
     scene.tweens.add({
-      targets: [overlay, text],
+      targets: fadeTargets,
       alpha: 1,
       duration: 400,
       onComplete: () => {
-        scene.time.delayedCall(700, () => window.location.reload());
+        scene.time.delayedCall(restartDelay, () => window.location.reload());
       },
     });
   }
@@ -1438,10 +1716,17 @@ export class WorldScreenController extends ScreenController {
     }
     this._portalTransitionOverlay?.destroy();
     this._destroyCutscene();
+    this._localConversationTimer?.remove(false);
+    this._localConversationTimer = null;
+    this._localConversationBubble?.destroy();
+    this._localConversationBubble = null;
     this.actor.sprite.destroy();
     this.cat.destroy();
     for (const npc of this.cityNpcs) npc.destroy();
     for (const group of this.citySoldierGroups) group.destroy();
+    this.cityNpc3?.sprite.destroy();
+    this.cityNpc4?.sprite.destroy();
+    this.hacker?.sprite.destroy();
     this.teacher.sprite.destroy();
     for (const droppedItem of this.droppedItems) {
       droppedItem.object.destroy();

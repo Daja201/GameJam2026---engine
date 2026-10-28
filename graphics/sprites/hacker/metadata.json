@@ -1,0 +1,36 @@
+{
+  "group_id": "abb13fbc-a5cb-4742-947e-03e7fce08d33",
+  "states": [
+    {
+      "character": {
+        "id": "b981af6c-e0b1-442c-ac5e-b2f6ba17f364",
+        "name": "Idle",
+        "prompt": "Very neutral dark grey coat a little bit cyberpunk character with neon blue shoes, cant see his face nor his neck, high trench coat and big hat like a mafia.",
+        "size": {
+          "width": 32,
+          "height": 32
+        },
+        "template_id": "mannequin",
+        "directions": 8,
+        "view": "high top-down",
+        "created_at": "2026-10-28T08:51:44.724258+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-28T09:01:22.363604"
+}

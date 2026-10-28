@@ -1,0 +1,36 @@
+{
+  "group_id": "58e00f0b-bab8-4c07-8e4e-2b0287024431",
+  "states": [
+    {
+      "character": {
+        "id": "85066381-55db-4c98-816e-043baa2bbd34",
+        "name": "Idle",
+        "prompt": "Very neutral dark grey coat a  character with neon blue shoes, cant see his face nor his neck, high trench coat and big hat like a mafia.",
+        "size": {
+          "width": 32,
+          "height": 32
+        },
+        "template_id": "mannequin",
+        "directions": 8,
+        "view": "low top-down",
+        "created_at": "2026-10-28T08:59:09.033776+00:00"
+      },
+      "folder": "Idle",
+      "frames": {
+        "rotations": {
+          "south": "Idle/rotations/south.png",
+          "south-east": "Idle/rotations/south-east.png",
+          "east": "Idle/rotations/east.png",
+          "north-east": "Idle/rotations/north-east.png",
+          "north": "Idle/rotations/north.png",
+          "north-west": "Idle/rotations/north-west.png",
+          "west": "Idle/rotations/west.png",
+          "south-west": "Idle/rotations/south-west.png"
+        },
+        "animations": {}
+      }
+    }
+  ],
+  "export_version": "3.1",
+  "export_date": "2026-10-28T09:04:58.639394"
+}
