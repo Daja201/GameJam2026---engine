@@ -2,10 +2,11 @@ import { Actor } from '../../engine/sprites/Actor.js';
 
 /** Walking speed, pixels per second — same ballpark as the old pathfinding wanderer. */
 const WALK_SPEED = 24;
+/** +/- random fraction applied to each wanderer's own speed so a cluster spreads out over time
+ *  into visible gaps instead of walking in lockstep like a single train. */
+const WALK_SPEED_JITTER = 0.25;
 /** How close (pixels) counts as "arrived" at the current waypoint. */
 const ARRIVE_DISTANCE = 3;
-/** How long (ms) a hidden NPC waits before walking the route again. */
-const RESPAWN_DELAY_MS = 2500;
 /** How many pixels past the right edge of the map before the NPC is considered "offscreen". */
 const OFFSCREEN_MARGIN_PX = 24;
 
@@ -64,12 +65,26 @@ export class CityWanderer {
   /**
    * @param {Phaser.Scene} scene
    * @param {ReturnType<typeof buildCityNavigationGrid>} grid
+   * @param {string} [spriteId]
    */
-  constructor(scene, grid) {
+  constructor(scene, grid, spriteId = 'npc1') {
     this.scene = scene;
     this.grid = grid;
-    this.hidden = false;
-    this._respawnTimer = 0;
+    this.spriteId = spriteId;
+    const start = this._worldPos({ x: 0, y: 24 });
+    this.actor = new Actor(scene, this.spriteId, start.x, start.y);
+    this.sprite = this.actor.sprite;
+    this.sprite.body.setCollideWorldBounds(false);
+    this.sprite.body.enable = false;
+    this.sprite.setVisible(false);
+    this.hidden = true;
+    /** This instance's own walk speed, randomized once per spawn (see WALK_SPEED_JITTER). */
+    this.walkSpeed = WALK_SPEED;
+  }
+
+  /** @returns {void} */
+  spawn() {
+    if (!this.hidden) return;
     this._spawn();
   }
 
@@ -89,10 +104,12 @@ export class CityWanderer {
     ];
     this.routeIndex = 0;
     this.leavingScreen = false;
+    this.walkSpeed = WALK_SPEED * (1 + (Math.random() * 2 - 1) * WALK_SPEED_JITTER);
 
     const start = this._worldPos(this.route[0]);
+    this.sprite.body.enable = true;
     if (!this.actor) {
-      this.actor = new Actor(this.scene, 'npc1', start.x, start.y);
+      this.actor = new Actor(this.scene, this.spriteId, start.x, start.y);
       this.sprite = this.actor.sprite;
       // Hitbox for the character, same as the player/cat — but world-bounds collision stays off
       // (see class doc) so it can actually walk out past the screen border to hide.
@@ -120,8 +137,7 @@ export class CityWanderer {
   /** @param {number} time @param {number} delta @returns {void} */
   update(time, delta) {
     if (this.hidden) {
-      this._respawnTimer -= delta;
-      if (this._respawnTimer <= 0) this._spawn();
+      this.sprite.body.setVelocity(0, 0);
       return;
     }
 
@@ -129,14 +145,14 @@ export class CityWanderer {
 
     if (this.leavingScreen) {
       // Past the last waypoint: keep walking right until off the map, then hide.
-      body.setVelocity(WALK_SPEED, 0);
-      this.actor.setDirectionFromVector(1, 0, 'idle');
+      body.setVelocity(this.walkSpeed, 0);
+      this.actor.setDirectionFromVector(1, 0, 'walk');
       this.actor.update(time, delta);
       if (this.sprite.x >= this.grid.mapWidthPx + OFFSCREEN_MARGIN_PX) {
         body.setVelocity(0, 0);
+        body.enable = false;
         this.sprite.setVisible(false);
         this.hidden = true;
-        this._respawnTimer = RESPAWN_DELAY_MS;
       }
       return;
     }
@@ -151,10 +167,24 @@ export class CityWanderer {
       this.routeIndex += 1;
       if (this.routeIndex >= this.route.length) this.leavingScreen = true;
     } else {
-      body.setVelocity((dx / distance) * WALK_SPEED, (dy / distance) * WALK_SPEED);
-      this.actor.setDirectionFromVector(dx, dy, 'idle');
+      body.setVelocity((dx / distance) * this.walkSpeed, (dy / distance) * this.walkSpeed);
+      this.actor.setDirectionFromVector(dx, dy, 'walk');
     }
     this.actor.update(time, delta);
+  }
+
+  /**
+   * Immediately hides this wanderer and stops it wherever it is (mid-route or not), clearing its
+   * movement state. Used when leaving the city so nobody is left walking against a tilemap layer
+   * that's about to be destroyed. Safe to call on an already-hidden wanderer.
+   * @returns {void}
+   */
+  reset() {
+    this.sprite.body.setVelocity(0, 0);
+    this.sprite.body.enable = false;
+    this.sprite.setVisible(false);
+    this.hidden = true;
+    this.leavingScreen = false;
   }
 
   /** @returns {void} */

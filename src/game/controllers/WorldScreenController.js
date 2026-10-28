@@ -2,6 +2,7 @@ import { ScreenController } from '../../engine/screens/ScreenController.js';
 import { Actor } from '../../engine/sprites/Actor.js';
 import { Companion } from '../companions/Companion.js';
 import { buildCityNavigationGrid, CityWanderer } from '../companions/CityWanderer.js';
+import { CitySoldierGroup } from '../companions/CitySoldierGroup.js';
 import { InteractiveObject } from '../../engine/world/InteractiveObject.js';
 import { isWithinRadius } from '../../engine/world/ProximityDetector.js';
 import { INTERNAL_HEIGHT, INTERNAL_WIDTH } from '../../engine/display/constants.js';
@@ -33,6 +34,13 @@ const INTERACT_RADIUS = 28;
 /** How close the cat must be to the player's punching hand for a fight-mode hit to land on it. */
 const CAT_HIT_RADIUS = 20;
 const WORLD_Y_SORT_DEPTH_RANGE = DEPTH.WORLD_FOREGROUND - DEPTH.WORLD_ENTITIES - 1;
+const MAX_ACTIVE_CITY_WANDERERS = 5;
+/** Total wanderer pool the spawn queue draws from — bigger than MAX_ACTIVE so there's enough
+ *  slack for random gaps between walkers instead of them bunching into one train. */
+const CITY_NPC_POOL_SIZE = 9;
+/** Minimum/extra-random delay (ms) between one wanderer spawning and the next being allowed to. */
+const CITY_NPC_SPAWN_GAP_MIN_MS = 3500;
+const CITY_NPC_SPAWN_GAP_RANDOM_MS = 5500;
 
 // Elevator (city) <-> underworld teleport system. Restored after going missing from this
 // controller — see the city/under tilemaps for the tile coordinates these refer to.
@@ -202,18 +210,32 @@ export class WorldScreenController extends ScreenController {
     if (partialHitboxGroup) this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, partialHitboxGroup));
     this.cityNpcs = [];
     this.cityNpcColliders = [];
+    this.cityNpcSpawnQueue = [];
+    this.cityNpcScheduled = new Set();
+    this.cityNpcSpawnTimer = 0;
+    this.citySoldierGroups = [];
     if (collisionLayer && mapSize) {
       const navigationGrid = buildCityNavigationGrid(collisionLayer);
-      this.cityNpcs = Array.from({ length: 5 }, () => {
-        const npc = new CityWanderer(scene, navigationGrid);
+      this.cityNavigationGrid = navigationGrid;
+      this.cityNpcs = Array.from({ length: CITY_NPC_POOL_SIZE }, (_, index) => {
+        const spriteId = index % 2 === 0 ? 'npc1' : 'npc2';
+        const npc = new CityWanderer(scene, navigationGrid, spriteId);
         this.cityNpcColliders.push(scene.physics.add.collider(npc.sprite, collisionLayer));
         if (partialHitboxGroup) {
           this.cityNpcColliders.push(scene.physics.add.collider(npc.sprite, partialHitboxGroup));
         }
         return npc;
       });
+      this.cityNpcSpawnQueue = [...this.cityNpcs];
+      this.cityNpcScheduled = new Set(this.cityNpcSpawnQueue);
+      this.cityNpcSpawnTimer = Math.random() * 6000;
+      // Two stationary pairs, posted on the same road row the wanderers walk (y 24/25), spread
+      // out along it so they read as watching the street rather than patrolling it themselves.
+      this.citySoldierGroups = [
+        new CitySoldierGroup(scene, navigationGrid, { x: 2, y: 24 }),
+        new CitySoldierGroup(scene, navigationGrid, { x: 8, y: 25 }),
+      ];
     }
-    this.soldier = new Actor(scene, 'soldier', spawnX + 200, spawnY + 40);
     // NPC Louisa removed per request — this used to be an `Actor(scene, 'louisa', ...)` spawned
     // here. Left out entirely rather than just hidden, since she's no longer wanted in the scene.
     this.teacher = new Actor(scene, 'teach', spawnX - 120, spawnY + 40);
@@ -395,8 +417,11 @@ export class WorldScreenController extends ScreenController {
     this._syncActorOrigin();
     this.actor.update(time, delta);
     this.cat.update(time, delta);
-    for (const npc of this.cityNpcs) npc.update(time, delta);
-    this.soldier.update(time, delta);
+    if (this._currentArea === 'city') {
+      for (const npc of this.cityNpcs) npc.update(time, delta);
+      this._updateCityNpcSpawns(delta);
+      for (const group of this.citySoldierGroups) group.update(time, delta);
+    }
     this.teacher.update(time, delta);
     this._keepCatOffPlayer();
     this._sortWorldEntities();
@@ -630,6 +655,26 @@ export class WorldScreenController extends ScreenController {
     for (const collider of this._mapColliders) scene.physics.world.removeCollider(collider);
     this._mapColliders.length = 0;
 
+    // City-only NPC wanderers/soldiers collide against the CITY tilemap layer specifically, not
+    // whatever `this._mapColliders` above points at. That layer is about to be destroyed below
+    // (`previousBackground?.destroy()`), so any collider still referencing it would try to read
+    // tile metrics off a dead layer next physics step and throw ("Cannot read properties of
+    // undefined (reading 'tileWidth')"). Tear them down unconditionally here; they're rebuilt
+    // further down only if we're (re-)entering the city.
+    for (const collider of this.cityNpcColliders) scene.physics.world.removeCollider(collider);
+    this.cityNpcColliders.length = 0;
+    if (area !== 'city') {
+      // No NPCs/soldiers in the underworld: hide and fully stop every wanderer (and reset it
+      // back to its pre-spawn state so it re-enters the normal spawn queue, rather than popping
+      // back in mid-route) so they come back naturally once the player returns to the city.
+      for (const npc of this.cityNpcs) npc.reset();
+      this.cityNpcSpawnQueue = [...this.cityNpcs];
+      this.cityNpcScheduled = new Set(this.cityNpcSpawnQueue);
+      for (const group of this.citySoldierGroups) group.setVisible(false);
+    } else {
+      for (const group of this.citySoldierGroups) group.setVisible(true);
+    }
+
     this.mapOverlay?.destroy();
     this.mapOverlay = null;
     const previousBackground = this.background;
@@ -654,6 +699,14 @@ export class WorldScreenController extends ScreenController {
       this._mapColliders.push(scene.physics.add.collider(this.actor.sprite, partialHitboxGroup));
       this._mapColliders.push(scene.physics.add.collider(this.cat.sprite, partialHitboxGroup));
     }
+    if (area === 'city' && collisionLayer) {
+      for (const npc of this.cityNpcs) {
+        this.cityNpcColliders.push(scene.physics.add.collider(npc.sprite, collisionLayer));
+        if (partialHitboxGroup) {
+          this.cityNpcColliders.push(scene.physics.add.collider(npc.sprite, partialHitboxGroup));
+        }
+      }
+    }
     this.actor.sprite.setCollideWorldBounds(Boolean(this.mapSize));
     this.cat.sprite.setCollideWorldBounds(Boolean(this.mapSize));
     this.cat.setNavigationMap(collisionLayer, partialHitboxGroup);
@@ -671,9 +724,9 @@ export class WorldScreenController extends ScreenController {
     }
     this._tileDebugGraphic?.setVisible(SettingsStore.get('video.hitboxDebug'));
     this.mapOverlay = this._createMapOverlay();
-    // Note: city-only NPC wanderers (this.cityNpcs) and the teacher/soldier actors are NOT
-    // rebuilt here — they're city-only dressing and simply keep existing (off-camera, harmless)
-    // while the underworld background is active, same as before this transition logic existed.
+    // Note: the teacher actor is NOT rebuilt here — it's cutscene-only and stays wherever it was,
+    // invisible, regardless of area. City-only NPC wanderers/soldiers ARE handled above/below:
+    // hidden + reset while not in the city, and their colliders rebuilt when (re-)entering it.
   }
 
   /**
@@ -689,7 +742,7 @@ export class WorldScreenController extends ScreenController {
       // Keep the cat in the exact same ground-Y depth ordering as the player.
       this.cat.sprite,
       ...this.cityNpcs.map((npc) => npc.sprite),
-      this.soldier.sprite,
+      ...this.citySoldierGroups.flatMap((group) => group.actors.map((actor) => actor.sprite)),
       this.teacher.sprite,
       this.pcVisual,
       ...this.droppedItems.flatMap(({ visual, icon, countLabel }) => [visual, icon, countLabel]),
@@ -701,6 +754,33 @@ export class WorldScreenController extends ScreenController {
       const depth = DEPTH.WORLD_ENTITIES + normalizedY * WORLD_Y_SORT_DEPTH_RANGE;
       if (object.depth !== depth) object.setDepth(depth);
     }
+  }
+
+  /**
+   * Randomizes walker entries and respawns while limiting the number visible at once.
+   * @private
+   * @param {number} delta
+   * @returns {void}
+   */
+  _updateCityNpcSpawns(delta) {
+    for (const npc of this.cityNpcs) {
+      if (npc.hidden && !this.cityNpcScheduled.has(npc)) {
+        this.cityNpcSpawnQueue.push(npc);
+        this.cityNpcScheduled.add(npc);
+      }
+    }
+
+    const activeCount = this.cityNpcs.filter((npc) => !npc.hidden).length;
+    if (activeCount >= MAX_ACTIVE_CITY_WANDERERS || this.cityNpcSpawnQueue.length === 0) return;
+
+    this.cityNpcSpawnTimer -= delta;
+    if (this.cityNpcSpawnTimer > 0) return;
+
+    const index = Math.floor(Math.random() * this.cityNpcSpawnQueue.length);
+    const [npc] = this.cityNpcSpawnQueue.splice(index, 1);
+    this.cityNpcScheduled.delete(npc);
+    npc.spawn();
+    this.cityNpcSpawnTimer = CITY_NPC_SPAWN_GAP_MIN_MS + Math.random() * CITY_NPC_SPAWN_GAP_RANDOM_MS;
   }
 
   /**
@@ -1097,7 +1177,7 @@ export class WorldScreenController extends ScreenController {
     this.actor.sprite.destroy();
     this.cat.destroy();
     for (const npc of this.cityNpcs) npc.destroy();
-    this.soldier.sprite.destroy();
+    for (const group of this.citySoldierGroups) group.destroy();
     this.teacher.sprite.destroy();
     this.pc.destroy();
     this.pcVisual.destroy();
