@@ -115,6 +115,28 @@
           "description": "Find the hacker community at [21–23, 5]"
         }
       ]
+    },
+    {
+      "id": "learn_hacking",
+      "title": "Learn Hacking",
+      "description": "Go to the computer at [23, 2] and use it.",
+      "objectives": [
+        {
+          "id": "reach_training_computer",
+          "type": "reach_location",
+          "screenId": "world",
+          "x": 752,
+          "y": 80,
+          "radius": 18,
+          "description": "Go to the computer at [23, 2]"
+        },
+        {
+          "id": "use_training_computer",
+          "type": "interact",
+          "targetId": "under_training_computer",
+          "description": "Use the computer with E"
+        }
+      ]
     }
   ]
 }

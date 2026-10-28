@@ -72,6 +72,12 @@ class BootScene extends Phaser.Scene {
     this.load.json('items-config', 'config/items.default.json');
     this.load.audio('music:gui-menu', 'audio/music/gui.ogg');
     this.load.audio('music:gameplay', 'audio/music/lofi.mp3');
+    this.load.audio('music:underworld', 'audio/music/under.mp3');
+    this.load.spritesheet(
+      'under:spinning-cat-sheet',
+      'graphics/sprites/car/car.png',
+      { frameWidth: 220, frameHeight: 220 },
+    );
   }
 
   /** @returns {Promise<void>} */

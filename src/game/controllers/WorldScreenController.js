@@ -59,6 +59,19 @@ const WORK_QUEST_ID = 'get_to_work';
 const LOCAL_HELP_QUEST_IDS = ['ask_local_1', 'ask_local_2', 'ask_local_3'];
 const FIND_SUB_QUEST_ID = 'find_sub';
 const UNDERGROUND_HACKER_QUEST_ID = 'find_underground_hacker_community';
+const LEARN_HACKING_QUEST_ID = 'learn_hacking';
+const UNDER_TRAINING_COMPUTER_TARGET_ID = 'under_training_computer';
+const UNDER_NPC3_SPIN_DIRECTIONS = [
+  'south',
+  'south-west',
+  'west',
+  'north-west',
+  'north',
+  'north-east',
+  'east',
+  'south-east',
+];
+const UNDER_NPC3_DIRECTION_DURATION_MS = 225;
 
 /** Mode names. In 'normal' mode E interacts with the world; in 'fight' mode E punches. */
 const MODE_NORMAL = 'normal';
@@ -136,6 +149,7 @@ export class WorldScreenController extends ScreenController {
     this._cityPortalLocked = false;
     this._turretDoorLocked = false;
     this._underExitArmed = false;
+    this.underCar = null;
     this.isTransitioning = false;
     this._currentArea = 'city';
     const mapSize = this.background?.getMapSize?.();
@@ -216,6 +230,17 @@ export class WorldScreenController extends ScreenController {
     this.hacker = null;
     this.underComputers = [];
     this.underHackers = [];
+    this.underNpc3s = [];
+    this._underNpc3DirectionIndex = 0;
+    this._underNpc3DirectionSteps = [];
+    this._underNpc3DirectionElapsed = 0;
+    this.underDjNpc3 = null;
+    this.underCommunityHacker = null;
+    this._underCommunityHackerConversationActive = false;
+    this._underCommunityHackerConversationComplete = false;
+    this.underDjPult = null;
+    this.underDjLights = null;
+    this._underDjLightElapsed = 0;
     this.underComputerAccess = null;
     this._npc3ConversationActive = false;
     this._npc3ConversationComplete = false;
@@ -280,7 +305,7 @@ export class WorldScreenController extends ScreenController {
           origin.x + (tileX + 0.5) * tileSize.width,
           origin.y + (2 + 0.5) * tileSize.height,
         );
-        computer.setDirection('north');
+        computer.setDirection('south');
         computer.sprite.setVisible(false);
         return computer;
       });
@@ -295,13 +320,83 @@ export class WorldScreenController extends ScreenController {
         npc.sprite.setVisible(false);
         return npc;
       });
+      this.underNpc3s = [
+        { x: 6, y: 3 },
+        { x: 10, y: 3 },
+        { x: 8, y: 4 },
+        { x: 5, y: 3 },
+        { x: 7, y: 3 },
+        { x: 9, y: 3 },
+        { x: 11, y: 3 },
+        { x: 5, y: 4 },
+        { x: 6, y: 4 },
+        { x: 7, y: 4 },
+        { x: 9, y: 4 },
+        { x: 10, y: 4 },
+        { x: 11, y: 4 },
+        { x: 6.2, y: 4.7, loose: true },
+        { x: 6.7, y: 5.1, loose: true },
+        { x: 7.4, y: 4.8, loose: true },
+        { x: 8.1, y: 5.2, loose: true },
+        { x: 8.9, y: 4.7, loose: true },
+        { x: 9.4, y: 5.1, loose: true },
+        { x: 9.8, y: 4.8, loose: true },
+        { x: 7, y: 5.4, loose: true },
+        { x: 8.4, y: 5.6, loose: true },
+        { x: 9.2, y: 5.4, loose: true },
+      ].map(({ x, y, loose = false }) => {
+        const offsetX = loose ? (Math.random() - 0.5) * tileSize.width * 0.7 : 0;
+        const offsetY = loose ? (Math.random() - 0.5) * tileSize.height * 0.7 : 0;
+        const npc = new Actor(
+          scene,
+          'npc3',
+          origin.x + (x + 0.5) * tileSize.width + offsetX,
+          origin.y + (y + 0.5) * tileSize.height + offsetY,
+        );
+        npc.setDirection(UNDER_NPC3_SPIN_DIRECTIONS[0]);
+        npc.sprite.setVisible(false);
+        return npc;
+      });
+      this._underNpc3DirectionSteps = this.underNpc3s.map((_, index) => (
+        index >= 3 && index % 2 === 1 ? -1 : 1
+      ));
+      this.underDjNpc3 = new Actor(
+        scene,
+        'npc3',
+        origin.x + (8 + 0.5) * tileSize.width,
+        origin.y + (2 + 0.5) * tileSize.height,
+      );
+      this.underDjNpc3.setDirection('south');
+      this.underDjNpc3.sprite.setVisible(false);
+      this.underCommunityHacker = new Actor(
+        scene,
+        'hacker',
+        origin.x + (22 + 0.5) * tileSize.width,
+        origin.y + (4 + 0.5) * tileSize.height,
+      );
+      this.underCommunityHacker.sprite.setVisible(false);
       const interactiveComputerX = origin.x + (23 + 0.5) * tileSize.width;
       const interactionY = origin.y + (3 + 0.2) * tileSize.height;
       this.underComputerAccess = new InteractiveObject(scene, interactiveComputerX, interactionY, {
         width: tileSize.width * 1.5,
         height: tileSize.height,
         label: '[E] use computer',
-        onInteract: () => this.engine.screenManager.push('terminal'),
+        onInteract: () => {
+          if (QuestManager.isQuestActive(LEARN_HACKING_QUEST_ID)) {
+            const quest = QuestManager.getQuest(LEARN_HACKING_QUEST_ID);
+            const reachObjective = quest?.objectives.find(
+              (objective) => objective.id === 'reach_training_computer',
+            );
+            if (reachObjective && !reachObjective.done) {
+              QuestManager.completeObjective(
+                LEARN_HACKING_QUEST_ID,
+                'reach_training_computer',
+              );
+            }
+          }
+          QuestManager.triggerInteract(UNDER_TRAINING_COMPUTER_TARGET_ID);
+          this.engine.screenManager.push('terminal');
+        },
       });
       this.underComputerAccess.showPrompt(false);
     }
@@ -400,6 +495,7 @@ export class WorldScreenController extends ScreenController {
       else if (id === LOCAL_HELP_QUEST_IDS[1]) QuestManager.assignQuest(LOCAL_HELP_QUEST_IDS[2]);
       else if (id === LOCAL_HELP_QUEST_IDS[2]) QuestManager.assignQuest(FIND_SUB_QUEST_ID);
       else if (id === FIND_SUB_QUEST_ID) QuestManager.assignQuest(UNDERGROUND_HACKER_QUEST_ID);
+      else if (id === UNDERGROUND_HACKER_QUEST_ID) QuestManager.assignQuest(LEARN_HACKING_QUEST_ID);
 
       // Reward granting is this content's job, not QuestManager's (see its module docstring's
       // REWARD ITEMS note) — QuestManager only hands the list off on the event payload.
@@ -477,6 +573,7 @@ export class WorldScreenController extends ScreenController {
       this._npc3ConversationActive
       || this._npc4ConversationActive
       || this._hackerConversationActive
+      || this._underCommunityHackerConversationActive
     ) {
       this.actor.sprite.body.setVelocity(0, 0);
       this.actor.playState('idle');
@@ -503,6 +600,11 @@ export class WorldScreenController extends ScreenController {
     if (this._currentArea === 'under') {
       for (const computer of this.underComputers) computer.update(time, delta);
       for (const npc of this.underHackers) npc.update(time, delta);
+      this._updateUnderNpc3s(time, delta);
+      this.underDjNpc3?.update(time, delta);
+      this._trackPlayerWithUnderCommunityHacker();
+      this.underCommunityHacker?.update(time, delta);
+      this._updateUnderDjLights(delta);
     }
     this.teacher.update(time, delta);
     this._keepCatOffPlayer();
@@ -526,6 +628,7 @@ export class WorldScreenController extends ScreenController {
     this._tryStartNpc3Conversation();
     this._tryStartNpc4Conversation();
     this._tryStartHackerConversation();
+    this._tryStartUnderCommunityHackerConversation();
     QuestManager.reportLocation('world', this.actor.sprite.x, this.actor.sprite.y);
     const trackedQuest = QuestManager.getTrackedQuest();
     const trackedLocation = trackedQuest?.objectives.find((objective) => (
@@ -638,7 +741,7 @@ export class WorldScreenController extends ScreenController {
       && tileX >= 21
       && tileX <= 23
     ) {
-      QuestManager.completeObjective(UNDERGROUND_HACKER_QUEST_ID, 'reach_hacker_community');
+      this._tryStartUnderCommunityHackerConversation();
     }
     if (body.center.x >= tileSize.width * 1.5) this._underExitArmed = true;
     if (this._underExitArmed && body.left <= 2) this._transitionToArea('city');
@@ -773,6 +876,15 @@ export class WorldScreenController extends ScreenController {
   }
 
   /**
+   * Dev-panel shortcut into the underworld, using the normal area transition.
+   * @returns {void}
+   */
+  teleportToUnderworld() {
+    if (this._currentArea !== 'city' || this.isTransitioning) return;
+    this._transitionToArea('under');
+  }
+
+  /**
    * Replaces the active background and refreshes all map-bound world systems.
    * @private
    * @param {'city'|'under'} area
@@ -781,6 +893,12 @@ export class WorldScreenController extends ScreenController {
   _replaceBackground(area) {
     const { scene } = this.engine;
     const nextBackground = BackgroundLoader.build(scene, area);
+    this.underCar?.destroy();
+    this.underCar = null;
+    this.underDjPult?.destroy();
+    this.underDjPult = null;
+    this.underDjLights?.destroy();
+    this.underDjLights = null;
     for (const collider of this._mapColliders) scene.physics.world.removeCollider(collider);
     this._mapColliders.length = 0;
 
@@ -805,6 +923,9 @@ export class WorldScreenController extends ScreenController {
       this.hacker?.sprite.setVisible(false);
       for (const computer of this.underComputers) computer.sprite.setVisible(area === 'under');
       for (const npc of this.underHackers) npc.sprite.setVisible(area === 'under');
+      for (const npc of this.underNpc3s) npc.sprite.setVisible(area === 'under');
+      this.underDjNpc3?.sprite.setVisible(area === 'under');
+      this.underCommunityHacker?.sprite.setVisible(area === 'under');
     } else {
       for (const group of this.citySoldierGroups) group.setVisible(true);
       this.cityNpc3?.sprite.setVisible(true);
@@ -812,6 +933,9 @@ export class WorldScreenController extends ScreenController {
       this.hacker?.sprite.setVisible(true);
       for (const computer of this.underComputers) computer.sprite.setVisible(false);
       for (const npc of this.underHackers) npc.sprite.setVisible(false);
+      for (const npc of this.underNpc3s) npc.sprite.setVisible(false);
+      this.underDjNpc3?.sprite.setVisible(false);
+      this.underCommunityHacker?.sprite.setVisible(false);
     }
     this.underComputerAccess?.showPrompt(false);
 
@@ -822,10 +946,65 @@ export class WorldScreenController extends ScreenController {
     previousBackground?.destroy();
     this._backgroundChanged = this.background !== this._originalBackground;
     this._currentArea = area;
+    AudioManager.playMusic(area === 'under' ? 'music:underworld' : 'music:gameplay', { loop: true });
 
     this.mapSize = this.background.getMapSize();
     const collisionLayer = this.background.getCollisionLayer();
     const partialHitboxGroup = this.background.getPartialHitboxGroup();
+    if (area === 'under' && collisionLayer) {
+      const tileSize = this.background.getTileSize();
+      const djTileOrigin = collisionLayer.tileToWorldXY(8, 2);
+      const djX = djTileOrigin.x + tileSize.width / 2;
+      const djY = djTileOrigin.y + tileSize.height / 2;
+
+      this.underDjPult = scene.add.graphics();
+      this.underDjPult.fillStyle(0x17142c, 1);
+      this.underDjPult.fillRoundedRect(
+        djX - tileSize.width * 0.8,
+        djY - tileSize.height * 0.28,
+        tileSize.width * 1.6,
+        tileSize.height * 0.58,
+        5,
+      );
+      this.underDjPult.lineStyle(2, 0x55eaff, 0.95);
+      this.underDjPult.strokeRoundedRect(
+        djX - tileSize.width * 0.8,
+        djY - tileSize.height * 0.28,
+        tileSize.width * 1.6,
+        tileSize.height * 0.58,
+        5,
+      );
+      for (const ringX of [djX - tileSize.width * 0.42, djX + tileSize.width * 0.42]) {
+        this.underDjPult.lineStyle(2, 0xff4dd2, 1);
+        this.underDjPult.strokeCircle(ringX, djY, tileSize.width * 0.24);
+        this.underDjPult.lineStyle(2, 0x55eaff, 0.9);
+        this.underDjPult.strokeCircle(ringX, djY, tileSize.width * 0.1);
+      }
+      this.underDjPult.fillStyle(0xffe45e, 1);
+      this.underDjPult.fillRect(djX - 5, djY + tileSize.height * 0.14, 10, 3);
+      this.underDjLights = scene.add.graphics();
+      this.underDjLights.setDepth(DEPTH.WORLD_FOREGROUND - 1);
+      this._underDjLightElapsed = 0;
+      this._updateUnderDjLights(120);
+
+      const tileOrigin = collisionLayer.tileToWorldXY(15, 3);
+      const animationKey = 'under:spinning-cat';
+      if (!scene.anims.exists(animationKey)) {
+        scene.anims.create({
+          key: animationKey,
+          frames: scene.anims.generateFrameNumbers('under:spinning-cat-sheet', { start: 0, end: 8 }),
+          frameRate: 8,
+          repeat: -1,
+        });
+      }
+      this.underCar = scene.add.sprite(
+        tileOrigin.x + tileSize.width / 2,
+        tileOrigin.y + tileSize.height / 2,
+        'under:spinning-cat-sheet',
+      );
+      this.underCar.setDisplaySize(tileSize.width * 3, tileSize.height * 3);
+      this.underCar.play(animationKey);
+    }
     if (this.mapSize) {
       scene.physics.world.setBounds(0, 0, this.mapSize.width, this.mapSize.height);
       scene.cameras.main.setBounds(0, 0, this.mapSize.width, this.mapSize.height);
@@ -1168,6 +1347,10 @@ export class WorldScreenController extends ScreenController {
       ...(this.hacker ? [this.hacker.sprite] : []),
       ...this.underComputers.map((computer) => computer.sprite),
       ...this.underHackers.map((npc) => npc.sprite),
+      ...this.underNpc3s.map((npc) => npc.sprite),
+      ...(this.underDjNpc3 ? [this.underDjNpc3.sprite] : []),
+      ...(this.underCommunityHacker ? [this.underCommunityHacker.sprite] : []),
+      ...(this.underCar ? [this.underCar] : []),
       this.teacher.sprite,
       ...this.droppedItems.flatMap(({ visual, icon, countLabel }) => [visual, icon, countLabel]),
     ];
@@ -1177,6 +1360,62 @@ export class WorldScreenController extends ScreenController {
       const normalizedY = Math.max(0, Math.min(1, groundY / mapHeight));
       const depth = DEPTH.WORLD_ENTITIES + normalizedY * WORLD_Y_SORT_DEPTH_RANGE;
       if (object.depth !== depth) object.setDepth(depth);
+    }
+    if (this.underDjPult && this.underDjNpc3) {
+      this.underDjPult.setDepth(this.underDjNpc3.sprite.depth - 0.01);
+    }
+
+  }
+
+  /**
+   * Turns each underworld NPC3 through all eight directions once every 1.8 seconds.
+   * @param {number} time
+   * @param {number} delta
+   * @returns {void}
+   */
+  _updateUnderNpc3s(time, delta) {
+    this._underNpc3DirectionElapsed += delta;
+    while (this._underNpc3DirectionElapsed >= UNDER_NPC3_DIRECTION_DURATION_MS) {
+      this._underNpc3DirectionElapsed -= UNDER_NPC3_DIRECTION_DURATION_MS;
+      this._underNpc3DirectionIndex = (
+        this._underNpc3DirectionIndex + 1
+      ) % UNDER_NPC3_SPIN_DIRECTIONS.length;
+      this.underNpc3s.forEach((npc, index) => {
+        const directionIndex = (
+          this._underNpc3DirectionIndex * this._underNpc3DirectionSteps[index]
+          + UNDER_NPC3_SPIN_DIRECTIONS.length
+        ) % UNDER_NPC3_SPIN_DIRECTIONS.length;
+        npc.setDirection(UNDER_NPC3_SPIN_DIRECTIONS[directionIndex]);
+      });
+    }
+    for (const npc of this.underNpc3s) npc.update(time, delta);
+  }
+
+  /**
+   * Draws a shifting set of bright RGB rings around the underworld DJ console.
+   * @param {number} delta
+   * @returns {void}
+   */
+  _updateUnderDjLights(delta) {
+    if (!this.underDjLights || !this.underDjPult) return;
+    this._underDjLightElapsed += delta;
+    if (this._underDjLightElapsed < 120) return;
+    this._underDjLightElapsed %= 120;
+
+    const tileSize = this.background.getTileSize();
+    const origin = this.background.getCollisionLayer().tileToWorldXY(8, 2);
+    const centerX = origin.x + tileSize.width / 2;
+    const centerY = origin.y + tileSize.height * 2.5;
+    const colors = [0xff1744, 0x00f5ff, 0xffea00, 0xff00e5, 0x44ff00, 0xffffff];
+    this.underDjLights.clear();
+    for (let i = 0; i < 6; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = Math.random() * tileSize.width * 2;
+      const radius = tileSize.width * (0.18 + Math.random() * 0.45);
+      const x = centerX + Math.cos(angle) * distance;
+      const y = centerY + Math.sin(angle) * distance;
+      this.underDjLights.lineStyle(3, colors[Math.floor(Math.random() * colors.length)], 0.95);
+      this.underDjLights.strokeCircle(x, y, radius);
     }
   }
 
@@ -1654,6 +1893,80 @@ export class WorldScreenController extends ScreenController {
   }
 
   /**
+   * Turns the underground community hacker toward the player.
+   * @returns {void}
+   */
+  _trackPlayerWithUnderCommunityHacker() {
+    if (!this.underCommunityHacker || this._underCommunityHackerConversationActive) return;
+    const dx = this.actor.sprite.x - this.underCommunityHacker.sprite.x;
+    const dy = this.actor.sprite.y - this.underCommunityHacker.sprite.y;
+    if (dx === 0 && dy === 0) return;
+
+    const direction = resolveDirection(dx, dy, this.underCommunityHacker.manifest.directionality.mode);
+    if (direction !== this.underCommunityHacker.currentDirection) {
+      this.underCommunityHacker.setDirection(direction);
+    }
+  }
+
+  /**
+   * Plays the community hacker's welcome conversation once the player reaches the community.
+   * @returns {void}
+   */
+  _tryStartUnderCommunityHackerConversation() {
+    if (
+      this._currentArea !== 'under'
+      || !this.underCommunityHacker
+      || this._underCommunityHackerConversationActive
+      || this._underCommunityHackerConversationComplete
+      || !QuestManager.isQuestActive(UNDERGROUND_HACKER_QUEST_ID)
+    ) return;
+
+    const tileSize = this.background.getTileSize();
+    const body = this.actor.sprite.body;
+    const tileX = Math.floor(body.center.x / tileSize.width);
+    const tileY = Math.floor(body.center.y / tileSize.height);
+    if (tileY !== 5 || tileX < 21 || tileX > 23) return;
+
+    this._underCommunityHackerConversationActive = true;
+    this.actor.sprite.body.setVelocity(0, 0);
+    this.actor.playState('idle');
+    const dx = this.actor.sprite.x - this.underCommunityHacker.sprite.x;
+    const dy = this.actor.sprite.y - this.underCommunityHacker.sprite.y;
+    if (dx !== 0 || dy !== 0) {
+      this.actor.setDirectionFromVector(-dx, -dy, 'idle');
+      this.underCommunityHacker.setDirectionFromVector(dx, dy, 'idle');
+    }
+
+    this._showLocalConversationLine(
+      this.underCommunityHacker,
+      'Glad you are here, it took you a while to get here.',
+      2800,
+      () => {
+        this._showLocalConversationLine(
+          this.actor,
+          'Heard you can help me get my friend back, is it true? I really miss her.',
+          3400,
+          () => {
+            this._showLocalConversationLine(
+              this.underCommunityHacker,
+              "We can teach you to learn hacking, but we can't really risk going out to the city. They know us and they'd immediately capture us. But sit at the computer, we can teach you how to hack.",
+              6200,
+              () => {
+                this._underCommunityHackerConversationActive = false;
+                this._underCommunityHackerConversationComplete = true;
+                QuestManager.completeObjective(
+                  UNDERGROUND_HACKER_QUEST_ID,
+                  'reach_hacker_community',
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /**
    * @param {string} action
    * @param {{action: string, originalEvent: object}} event
    * @returns {void}
@@ -1666,6 +1979,7 @@ export class WorldScreenController extends ScreenController {
       this._npc3ConversationActive
       || this._npc4ConversationActive
       || this._hackerConversationActive
+      || this._underCommunityHackerConversationActive
     ) return;
     if (action === 'toggle-map') {
       this.mapOverlay?.toggleFull();
@@ -1808,6 +2122,12 @@ export class WorldScreenController extends ScreenController {
       this.engine.scene.physics.world.removeCollider(collider);
     }
     this._portalTransitionOverlay?.destroy();
+    this.underCar?.destroy();
+    this.underCar = null;
+    this.underDjPult?.destroy();
+    this.underDjLights?.destroy();
+    this.underDjNpc3?.sprite.destroy();
+    this.underCommunityHacker?.sprite.destroy();
     this._destroyCutscene();
     this._localConversationTimer?.remove(false);
     this._localConversationTimer = null;
@@ -1822,6 +2142,7 @@ export class WorldScreenController extends ScreenController {
     this.hacker?.sprite.destroy();
     for (const computer of this.underComputers) computer.sprite.destroy();
     for (const npc of this.underHackers) npc.sprite.destroy();
+    for (const npc of this.underNpc3s) npc.sprite.destroy();
     this.underComputerAccess?.destroy();
     this.teacher.sprite.destroy();
     for (const droppedItem of this.droppedItems) {

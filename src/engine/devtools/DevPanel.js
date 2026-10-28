@@ -173,6 +173,20 @@ export function attachDevPanel(engine, options = {}) {
     });
     panel.appendChild(screenRow);
 
+    // --- World -------------------------------------------------------------
+    panel.appendChild(h('h2', { text: 'World' }));
+    panel.appendChild(h('button', {
+      text: 'teleport to underworld',
+      onclick: () => {
+        const worldController = engine.worldController;
+        if (typeof worldController?.teleportToUnderworld !== 'function') {
+          console.warn('[DevPanel] the world screen is not active; cannot teleport to underworld.');
+          return;
+        }
+        worldController.teleportToUnderworld();
+      },
+    }));
+
     // --- Reset ------------------------------------------------------------
     panel.appendChild(h('h2', { text: 'Danger' }));
     panel.appendChild(h('button', {
