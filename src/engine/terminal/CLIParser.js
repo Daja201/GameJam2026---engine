@@ -1,5 +1,5 @@
 /**
- * The fake-Kali command-line parser: a pure, framework-agnostic command interpreter over a
+ * The SUB Linux command-line parser: a pure, framework-agnostic command interpreter over a
  * fake filesystem object (see fakeFileSystem.example.js for the expected node shape). The only
  * thing here that isn't plain JS is the constructor's `eventEmitter` parameter — a generic
  * EventEmitter-shaped object (typically `scene.events`), used only to `emit()` on crack

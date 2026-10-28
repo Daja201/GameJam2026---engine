@@ -186,6 +186,17 @@ export function attachDevPanel(engine, options = {}) {
         worldController.teleportToUnderworld();
       },
     }));
+    panel.appendChild(h('button', {
+      text: 'playcutscene1',
+      onclick: () => {
+        const worldController = engine.worldController;
+        if (typeof worldController?.playCutscene1 !== 'function') {
+          console.warn('[DevPanel] the world screen is not active; cannot play cutscene 1.');
+          return;
+        }
+        worldController.playCutscene1();
+      },
+    }));
 
     // --- Reset ------------------------------------------------------------
     panel.appendChild(h('h2', { text: 'Danger' }));

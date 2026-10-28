@@ -59,7 +59,7 @@ export class NetworkStructRenderer {
     if (this.isOpen) return;
 
     const container = this.scene.add.container(0, 0);
-    container.setDepth(DEPTH.FX_OVERLAY);
+    container.setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY);
 
     const background = this.scene.add.rectangle(
       0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT, 0xffffff,

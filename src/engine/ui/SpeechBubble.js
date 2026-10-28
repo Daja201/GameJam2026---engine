@@ -36,41 +36,67 @@ const TEXT_COLOR = '#1a1a2a';
  * @returns {{ container: Phaser.GameObjects.Container, destroy: () => void }}
  */
 export function createSpeechBubble(scene, tipX, tipY, text, opts = {}) {
+  const scrollFactor = opts.scrollFactor ?? 0;
+  const camera = scene.cameras.main;
+  const view = scrollFactor === 0
+    ? {
+      left: camera.x,
+      top: camera.y,
+      right: camera.x + camera.width,
+      bottom: camera.y + camera.height,
+    }
+    : camera.worldView;
+  const viewWidth = view.right - view.left;
+  const maxBoxWidth = Math.max(1, viewWidth - 4);
+
   const label = scene.add.text(0, 0, text, {
     fontFamily: 'monospace',
     fontSize: '8px',
     color: TEXT_COLOR,
     align: 'center',
-    wordWrap: { width: MAX_TEXT_WIDTH - PADDING_X * 2, useAdvancedWrap: true },
+    wordWrap: {
+      width: Math.min(MAX_TEXT_WIDTH - PADDING_X * 2, maxBoxWidth - PADDING_X * 2),
+      useAdvancedWrap: true,
+    },
   }).setOrigin(0.5, 0.5);
 
-  const boxWidth = label.width + PADDING_X * 2;
+  const boxWidth = Math.min(label.width + PADDING_X * 2, maxBoxWidth);
   const boxHeight = label.height + PADDING_Y * 2;
-  // Local coords: tail tip is the container's (0, 0); everything else sits above it.
   const boxTop = -boxHeight - TAIL_HEIGHT;
+  const containerX = opts.keepInView
+    ? Phaser.Math.Clamp(tipX, view.left + TAIL_HALF_WIDTH + 2, view.right - TAIL_HALF_WIDTH - 2)
+    : tipX;
+  const boxCenterX = opts.keepInView
+    ? Phaser.Math.Clamp(containerX, view.left + boxWidth / 2 + 2, view.right - boxWidth / 2 - 2)
+    : containerX;
+  const boxLeft = boxCenterX - containerX - boxWidth / 2;
+  const boxRight = boxLeft + boxWidth;
+  const tailBaseX = Phaser.Math.Clamp(
+    0,
+    boxLeft + CORNER_RADIUS + TAIL_HALF_WIDTH,
+    boxRight - CORNER_RADIUS - TAIL_HALF_WIDTH,
+  );
 
   const graphics = scene.add.graphics();
   graphics.fillStyle(FILL_COLOR, 1);
-  graphics.fillRoundedRect(-boxWidth / 2, boxTop, boxWidth, boxHeight, CORNER_RADIUS);
-  // Tail drawn as a filled triangle from the box's bottom edge down to the tip, then the box
-  // outline on top so the tail reads as part of the same shape (no seam at the box edge).
-  graphics.fillTriangle(-TAIL_HALF_WIDTH, boxTop + boxHeight, TAIL_HALF_WIDTH, boxTop + boxHeight, 0, 0);
+  graphics.fillRoundedRect(boxLeft, boxTop, boxWidth, boxHeight, CORNER_RADIUS);
+  graphics.fillTriangle(
+    tailBaseX - TAIL_HALF_WIDTH,
+    boxTop + boxHeight,
+    tailBaseX + TAIL_HALF_WIDTH,
+    boxTop + boxHeight,
+    0,
+    0,
+  );
   graphics.lineStyle(1.5, BORDER_COLOR, 1);
-  graphics.strokeRoundedRect(-boxWidth / 2, boxTop, boxWidth, boxHeight, CORNER_RADIUS);
-  graphics.lineBetween(-TAIL_HALF_WIDTH, boxTop + boxHeight, 0, 0);
-  graphics.lineBetween(TAIL_HALF_WIDTH, boxTop + boxHeight, 0, 0);
+  graphics.strokeRoundedRect(boxLeft, boxTop, boxWidth, boxHeight, CORNER_RADIUS);
+  graphics.lineBetween(tailBaseX - TAIL_HALF_WIDTH, boxTop + boxHeight, 0, 0);
+  graphics.lineBetween(tailBaseX + TAIL_HALF_WIDTH, boxTop + boxHeight, 0, 0);
 
-  label.setPosition(0, boxTop + boxHeight / 2);
+  label.setPosition(boxCenterX - containerX, boxTop + boxHeight / 2);
 
-  let containerX = tipX;
   let containerY = tipY;
   if (opts.keepInView) {
-    const view = scene.cameras.main.worldView;
-    containerX = Phaser.Math.Clamp(
-      containerX,
-      view.left + boxWidth / 2 + 2,
-      view.right - boxWidth / 2 - 2,
-    );
     containerY = Phaser.Math.Clamp(
       containerY,
       view.top + boxHeight + TAIL_HEIGHT + 2,
@@ -79,7 +105,7 @@ export function createSpeechBubble(scene, tipX, tipY, text, opts = {}) {
   }
 
   const container = scene.add.container(containerX, containerY, [graphics, label]);
-  container.setScrollFactor(opts.scrollFactor ?? 0);
+  container.setScrollFactor(scrollFactor);
   container.setDepth(opts.depth ?? DEPTH.FX_OVERLAY + 2);
 
   let destroyed = false;

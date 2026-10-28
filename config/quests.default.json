@@ -137,6 +137,68 @@
           "description": "Use the computer with E"
         }
       ]
+    },
+    {
+      "id": "hacker_final_mission",
+      "title": "Final Hack: Breach the Facility Network",
+      "description": "This is the real thing. Breach the facility network from the community's terminal, blind both cameras, and kill the automatic turret guarding the holding block — Louisa is on the other side of that door.",
+      "objectives": [
+        {
+          "id": "connect_router",
+          "type": "custom",
+          "count": 1,
+          "description": "Connect to the facility router (192.168.0.1)"
+        },
+        {
+          "id": "scan_network",
+          "type": "custom",
+          "count": 1,
+          "description": "Scan the local network"
+        },
+        {
+          "id": "connect_pc",
+          "type": "custom",
+          "count": 1,
+          "description": "Connect to the PC on the switch"
+        },
+        {
+          "id": "crack_password",
+          "type": "custom",
+          "count": 1,
+          "description": "Crack /etc/passwd.hash"
+        },
+        {
+          "id": "disable_camera_1",
+          "type": "custom",
+          "count": 1,
+          "description": "Shut down camera 1"
+        },
+        {
+          "id": "disable_camera_2",
+          "type": "custom",
+          "count": 1,
+          "description": "Shut down camera 2"
+        },
+        {
+          "id": "disable_turret",
+          "type": "custom",
+          "count": 1,
+          "description": "Shut down the automatic turret"
+        }
+      ]
+    },
+    {
+      "id": "find_provisional_prison",
+      "title": "The Provisional Prison",
+      "description": "The breach turned up a transfer order: Louisa isn't at the facility anymore — she's being held at the government's provisional prison. Find it.",
+      "objectives": [
+        {
+          "id": "locate_provisional_prison",
+          "type": "custom",
+          "count": 1,
+          "description": "Find the location of the government provisional prison"
+        }
+      ]
     }
   ]
 }

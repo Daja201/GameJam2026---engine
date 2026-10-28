@@ -60,6 +60,8 @@ const LOCAL_HELP_QUEST_IDS = ['ask_local_1', 'ask_local_2', 'ask_local_3'];
 const FIND_SUB_QUEST_ID = 'find_sub';
 const UNDERGROUND_HACKER_QUEST_ID = 'find_underground_hacker_community';
 const LEARN_HACKING_QUEST_ID = 'learn_hacking';
+const HACKER_MISSION_QUEST_ID = 'hacker_final_mission';
+const FIND_PRISON_QUEST_ID = 'find_provisional_prison';
 const UNDER_TRAINING_COMPUTER_TARGET_ID = 'under_training_computer';
 const UNDER_NPC3_SPIN_DIRECTIONS = [
   'south',
@@ -246,6 +248,10 @@ export class WorldScreenController extends ScreenController {
     this._npc3ConversationComplete = false;
     this._npc4ConversationActive = false;
     this._npc4ConversationComplete = false;
+    this._prisonConversationActive = false;
+    this._prisonConversationComplete = false;
+    this._prisonDoorCutsceneActive = false;
+    this._prisonDoorCutsceneObjects = [];
     this._hackerConversationActive = false;
     this._hackerConversationComplete = false;
     this._localConversationBubble = null;
@@ -344,6 +350,26 @@ export class WorldScreenController extends ScreenController {
         { x: 7, y: 5.4, loose: true },
         { x: 8.4, y: 5.6, loose: true },
         { x: 9.2, y: 5.4, loose: true },
+        { x: 5.8, y: 5.3, loose: true },
+        { x: 6.5, y: 5.8, loose: true },
+        { x: 7.3, y: 5.6, loose: true },
+        { x: 8.1, y: 5.9, loose: true },
+        { x: 9, y: 5.7, loose: true },
+        { x: 9.8, y: 5.9, loose: true },
+        { x: 6.2, y: 6.4, loose: true },
+        { x: 7.5, y: 6.5, loose: true },
+        { x: 8.8, y: 6.3, loose: true },
+        { x: 10, y: 6.4, loose: true },
+        { x: 6.1, y: 6.8, loose: true },
+        { x: 7.2, y: 6.9, loose: true },
+        { x: 8.3, y: 6.8, loose: true },
+        { x: 9.4, y: 6.9, loose: true },
+        { x: 10.1, y: 6.7, loose: true },
+        { x: 5.8, y: 7.3, loose: true },
+        { x: 6.9, y: 7.4, loose: true },
+        { x: 8.1, y: 7.2, loose: true },
+        { x: 9.2, y: 7.4, loose: true },
+        { x: 10.2, y: 7.3, loose: true },
       ].map(({ x, y, loose = false }) => {
         const offsetX = loose ? (Math.random() - 0.5) * tileSize.width * 0.7 : 0;
         const offsetY = loose ? (Math.random() - 0.5) * tileSize.height * 0.7 : 0;
@@ -496,6 +522,10 @@ export class WorldScreenController extends ScreenController {
       else if (id === LOCAL_HELP_QUEST_IDS[2]) QuestManager.assignQuest(FIND_SUB_QUEST_ID);
       else if (id === FIND_SUB_QUEST_ID) QuestManager.assignQuest(UNDERGROUND_HACKER_QUEST_ID);
       else if (id === UNDERGROUND_HACKER_QUEST_ID) QuestManager.assignQuest(LEARN_HACKING_QUEST_ID);
+      else if (id === LEARN_HACKING_QUEST_ID) QuestManager.assignQuest(HACKER_MISSION_QUEST_ID);
+      // hacker_final_mission's own completion (inside the terminal) assigns FIND_PRISON_QUEST_ID
+      // directly — see TerminalScreenController's `_onMissionQuestCompleted` — so it's not
+      // chained here too.
 
       // Reward granting is this content's job, not QuestManager's (see its module docstring's
       // REWARD ITEMS note) — QuestManager only hands the list off on the event payload.
@@ -572,6 +602,7 @@ export class WorldScreenController extends ScreenController {
     } else if (
       this._npc3ConversationActive
       || this._npc4ConversationActive
+      || this._prisonConversationActive
       || this._hackerConversationActive
       || this._underCommunityHackerConversationActive
     ) {
@@ -627,6 +658,7 @@ export class WorldScreenController extends ScreenController {
     // below is — QuestManager itself does the cheap no-op check when nothing's listening.
     this._tryStartNpc3Conversation();
     this._tryStartNpc4Conversation();
+    this._tryStartPrisonConversation();
     this._tryStartHackerConversation();
     this._tryStartUnderCommunityHackerConversation();
     QuestManager.reportLocation('world', this.actor.sprite.x, this.actor.sprite.y);
@@ -700,8 +732,12 @@ export class WorldScreenController extends ScreenController {
       if (!atTurretDoor) this._turretDoorLocked = false;
       else if (!this._turretDoorLocked) {
         this._turretDoorLocked = true;
-        QuestManager.resetAll();
-        this._showRespawnMessage('you were shot by automatic turret', 2200);
+        if (QuestManager.isQuestActive(FIND_PRISON_QUEST_ID)) {
+          this._playPrisonDoorPlaceholderCutscene();
+        } else {
+          QuestManager.resetAll();
+          this._showRespawnMessage('you were shot by automatic turret', 2200);
+        }
         return;
       }
 
@@ -882,6 +918,14 @@ export class WorldScreenController extends ScreenController {
   teleportToUnderworld() {
     if (this._currentArea !== 'city' || this.isTransitioning) return;
     this._transitionToArea('under');
+  }
+
+  /**
+   * Plays the first cutscene from the dev panel without completing its quest.
+   * @returns {void}
+   */
+  playCutscene1() {
+    this._playWorkCutscene();
   }
 
   /**
@@ -1081,7 +1125,7 @@ export class WorldScreenController extends ScreenController {
     this.cat.sprite.body.enable = false;
 
     const CENTER_X = INTERNAL_WIDTH / 2;
-    const GROUND_Y = INTERNAL_HEIGHT - 46;
+    const GROUND_Y = INTERNAL_HEIGHT;
     const WALK_SPEED_PX_S = 70;
     const FADE_MS = PORTAL_FADE_MS;
 
@@ -1103,7 +1147,7 @@ export class WorldScreenController extends ScreenController {
       louisa: { 32: { contentHeight: 30, bottomPad: 1 }, 48: { contentHeight: 30, bottomPad: 9 } },
       soldier: { 48: { contentHeight: 32, bottomPad: 6 } },
     };
-    const TARGET_CONTENT_HEIGHT_PX = INTERNAL_HEIGHT / 3; // on-screen art height all stand-ins share
+    const TARGET_CONTENT_HEIGHT_PX = (INTERNAL_HEIGHT / 3) * 2;
 
     /**
      * Rescales `standIn` so its actual art (not its canvas) is `TARGET_CONTENT_HEIGHT_PX` tall,
@@ -1144,9 +1188,9 @@ export class WorldScreenController extends ScreenController {
     turn(louisa, -1, 0, 'idle'); // watching west, toward where the player enters
     this._cutsceneActors = [mainChar, louisa, soldierLeft, soldierRight];
 
-    const mainCharStopX = CENTER_X - 70; // eye-to-eye, just west of Louisa
-    const soldierLeftStopX = CENTER_X + 72; // nearer pair member — ends up "the soldier on the left"
-    const soldierRightStopX = CENTER_X + 134;
+    const mainCharStopX = CENTER_X - 155; // leave a wide visible gap before Louisa at double scale
+    const soldierLeftStopX = CENTER_X + 145; // nearer pair member — ends up "the soldier on the left"
+    const soldierRightStopX = CENTER_X + 260;
     const betweenStopX = (mainCharStopX + CENTER_X) / 2; // where soldierLeft steps in to separate them
     const exitX = INTERNAL_WIDTH + 90;
 
@@ -1174,9 +1218,9 @@ export class WorldScreenController extends ScreenController {
       createSpeechBubble(
         scene,
         standIn.sprite.x,
-        standIn.sprite.y - standIn.sprite.displayHeight * 0.95,
+        standIn.sprite.y - TARGET_CONTENT_HEIGHT_PX - 4,
         text,
-        { holdMs, onDestroy: onDone },
+        { holdMs, onDestroy: onDone, keepInView: true },
       );
     };
 
@@ -1278,6 +1322,11 @@ export class WorldScreenController extends ScreenController {
       duration: PORTAL_FADE_MS,
       onComplete: () => {
         this._destroyCutscene();
+        for (const object of this._prisonDoorCutsceneObjects) {
+          this.engine.scene.tweens.killTweensOf(object);
+          object.destroy();
+        }
+        this._prisonDoorCutsceneObjects = [];
 
         this.actor.sprite.setPosition(returnX, returnY);
         this.actor.sprite.body.reset(returnX, returnY);
@@ -1828,6 +1877,80 @@ export class WorldScreenController extends ScreenController {
   }
 
   /**
+   * Starts the follow-up exchange with the second local from the provisional-prison quest.
+   * @private
+   * @returns {void}
+   */
+  _tryStartPrisonConversation() {
+    if (
+      this._currentArea !== 'city'
+      || !this.cityNpc4
+      || this._npc4ConversationActive
+      || this._prisonConversationActive
+      || this._prisonConversationComplete
+      || !QuestManager.isQuestActive(FIND_PRISON_QUEST_ID)
+      || !isWithinRadius(this.actor.sprite, this.cityNpc4.sprite, 18)
+    ) return;
+
+    this._prisonConversationActive = true;
+    this.actor.sprite.body.setVelocity(0, 0);
+    this.actor.playState('idle');
+
+    const dx = this.actor.sprite.x - this.cityNpc4.sprite.x;
+    const dy = this.actor.sprite.y - this.cityNpc4.sprite.y;
+    if (dx !== 0 || dy !== 0) {
+      this.cityNpc4.setDirectionFromVector(dx, dy, 'idle');
+      this.actor.setDirectionFromVector(-dx, -dy, 'idle');
+    }
+
+    this._showLocalConversationLine(this.cityNpc4, 'Did you manage to do something?', 2200, () => {
+      this._showLocalConversationLine(this.actor, "Yeah, I'm gonna save her.", 2200, () => {
+        this._showLocalConversationLine(this.cityNpc4, 'Good luck then, kid.', 2000, () => {
+          this._prisonConversationComplete = true;
+          this._prisonConversationActive = false;
+        });
+      });
+    });
+  }
+
+  /**
+   * Stops at the prison entrance with a minimal placeholder instead of triggering the old
+   * turret death/reset. Story continuation is intentionally left for a later implementation.
+   * @private
+   * @returns {void}
+   */
+  _playPrisonDoorPlaceholderCutscene() {
+    if (this._prisonDoorCutsceneActive) return;
+    const { scene } = this.engine;
+    this._prisonDoorCutsceneActive = true;
+    this.isTransitioning = true;
+    this.actor.sprite.body.setVelocity(0, 0);
+    this.actor.sprite.body.enable = false;
+    this.actor.playState('idle');
+
+    const backdrop = scene.add.rectangle(
+      INTERNAL_WIDTH / 2,
+      INTERNAL_HEIGHT / 2,
+      INTERNAL_WIDTH + 2,
+      INTERNAL_HEIGHT + 2,
+      0x000000,
+    ).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY + 4).setAlpha(0);
+    const title = scene.add.text(
+      INTERNAL_WIDTH / 2,
+      INTERNAL_HEIGHT / 2,
+      'PROVISIONAL PRISON\n\nTO BE CONTINUED',
+      { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff', align: 'center' },
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY + 5).setAlpha(0);
+    this._prisonDoorCutsceneObjects = [backdrop, title];
+
+    scene.tweens.add({
+      targets: [backdrop, title],
+      alpha: 1,
+      duration: PORTAL_FADE_MS,
+    });
+  }
+
+  /**
    * Turns the hacker toward the player while the third local-help quest is active.
    * @private
    * @returns {void}
@@ -1881,7 +2004,7 @@ export class WorldScreenController extends ScreenController {
       () => {
         this._showLocalConversationLine(
           this.hacker,
-          "Yeah, go meet us in SUB. Here's the location. Be careful and make sure nobody follows you. An enemy of our enemy is a friend of ours.",
+          "Yeah. We traced the facility holding her down to its network — this is it, no more scouting. Meet us in SUB and we'll run the breach for real. Be careful and make sure nobody follows you. An enemy of our enemy is a friend of ours.",
           7000,
           () => {
             this._hackerConversationComplete = true;
@@ -1974,10 +2097,11 @@ export class WorldScreenController extends ScreenController {
   onInput(action, event) {
     // Game must be fully unresponsive to keypresses while a cutscene plays (map toggle, pause
     // menu, interact, inventory — all of it).
-    if (this._cutsceneActive) return;
+    if (this._cutsceneActive || this._prisonDoorCutsceneActive) return;
     if (
       this._npc3ConversationActive
       || this._npc4ConversationActive
+      || this._prisonConversationActive
       || this._hackerConversationActive
       || this._underCommunityHackerConversationActive
     ) return;
