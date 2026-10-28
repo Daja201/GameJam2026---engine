@@ -418,7 +418,10 @@ export const BackgroundLoader = {
           if (!tileLayer) continue;
           const isYSortedLayer = cfg.y_sorted_layers?.includes(layerData.name);
           const isForegroundLayer = cfg.foreground_layers?.includes(layerData.name);
-          tileLayer.setDepth(isForegroundLayer ? DEPTH.WORLD_FOREGROUND + 1 : DEPTH.WORLD_GROUND);
+          const foregroundOrder = isForegroundLayer ? cfg.foreground_layers.indexOf(layerData.name) : -1;
+          tileLayer.setDepth(
+            isForegroundLayer ? DEPTH.WORLD_FOREGROUND + foregroundOrder + 1 : DEPTH.WORLD_GROUND,
+          );
           tileLayer.setScrollFactor(cfg.scroll_factors?.[layerData.name] ?? 1);
           tintables.push(tileLayer);
           if (isYSortedLayer) {

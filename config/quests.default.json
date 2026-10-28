@@ -89,6 +89,32 @@
           "description": "Ask the local at [27, 20] for help."
         }
       ]
+    },
+    {
+      "id": "find_sub",
+      "title": "Find SUB",
+      "description": "Go to [3, 0] and enter the under map.",
+      "objectives": [
+        {
+          "id": "enter_sub",
+          "type": "custom",
+          "count": 1,
+          "description": "Enter SUB at [3, 0]"
+        }
+      ]
+    },
+    {
+      "id": "find_underground_hacker_community",
+      "title": "Find the Underground Hacker Community",
+      "description": "Find the hacker community somewhere at [21–23, 5] in the under map.",
+      "objectives": [
+        {
+          "id": "reach_hacker_community",
+          "type": "custom",
+          "count": 1,
+          "description": "Find the hacker community at [21–23, 5]"
+        }
+      ]
     }
   ]
 }

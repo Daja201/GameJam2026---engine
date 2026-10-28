@@ -192,6 +192,62 @@
    <object id="3" x="0.162549" y="0.0267293" width="32" height="32"/>
   </objectgroup>
  </tile>
+ <tile id="75">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="8.11272" y="7.99341">
+    <polygon points="0,0 23.7416,-0.238609 23.7416,-7.7548 -8.23202,-7.7548 -7.99341,23.503 -0.238609,23.8609"/>
+   </object>
+  </objectgroup>
+ </tile>
+ <tile id="76">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0.238609" y="8.47063">
+    <polygon points="0,0 32.093,-0.357914 31.8544,-8.47063 -0.715828,-8.35133"/>
+   </object>
+  </objectgroup>
+ </tile>
+ <tile id="77">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="24.2189" y="8.82855">
+    <polygon points="0,0 -0.238609,23.2644 7.99341,23.1451 7.99341,-8.47063 -23.8609,-8.58994 -23.8609,-0.835133"/>
+   </object>
+  </objectgroup>
+ </tile>
+ <tile id="85">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0" y="0">
+    <polygon points="0,0 8.11272,0 8.35133,31.4964 -0.119305,31.4964"/>
+   </object>
+  </objectgroup>
+ </tile>
+ <tile id="87">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="23.9802" y="-0.238609">
+    <polygon points="0,0 7.99341,0 8.11272,31.9737 0.238609,31.9737"/>
+   </object>
+  </objectgroup>
+ </tile>
+ <tile id="95">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0.119305" y="-0.238609">
+    <polygon points="0,0 7.5162,0 7.7548,24.8154 31.8544,24.2189 31.8544,32.2123 -0.119305,32.093"/>
+   </object>
+  </objectgroup>
+ </tile>
+ <tile id="96">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="-0.119305" y="23.9802">
+    <polygon points="0,0 31.735,0.238609 32.2123,7.87411 0.238609,7.99341"/>
+   </object>
+  </objectgroup>
+ </tile>
+ <tile id="97">
+  <objectgroup draworder="index" id="2">
+   <object id="1" x="0.119305" y="24.0995">
+    <polygon points="0,0 22.9065,-0.238609 23.0258,-23.7416 31.8544,-23.8609 31.6157,7.7548 -0.715828,7.7548"/>
+   </object>
+  </objectgroup>
+ </tile>
  <tile id="110">
   <objectgroup draworder="index" id="2">
    <object id="1" x="0" y="26.349">

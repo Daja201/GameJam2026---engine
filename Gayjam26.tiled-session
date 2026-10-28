@@ -24,11 +24,11 @@
             "scaleInEditor": 0.99
         },
         "graphics/backgrounds/city/city.json": {
-            "scale": 0.8989,
+            "scale": 0.89,
             "selectedLayer": 2,
             "viewCenter": {
-                "x": 209.70074535543444,
-                "y": 573.4786961842251
+                "x": 53.37078651685397,
+                "y": 248.876404494382
             }
         },
         "graphics/backgrounds/city/city.json#CityTileset": {
@@ -49,19 +49,19 @@
             "scaleInEditor": 0.99
         },
         "graphics/backgrounds/city/under.json": {
-            "scale": 0.706,
-            "selectedLayer": 2,
+            "scale": 0.7,
+            "selectedLayer": 3,
             "viewCenter": {
-                "x": 497.8753541076488,
-                "y": 247.1671388101983
+                "x": 497.8571428571429,
+                "y": 247.85714285714283
             }
         },
         "graphics/backgrounds/under/under.tmj": {
-            "scale": 0.9005,
+            "scale": 0.9,
             "selectedLayer": 1,
             "viewCenter": {
-                "x": 462.52082176568575,
-                "y": 182.6762909494725
+                "x": 462.77777777777777,
+                "y": 182.77777777777774
             }
         },
         "graphics/backgrounds/under/under.tmj#city": {

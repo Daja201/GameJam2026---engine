@@ -12,10 +12,10 @@
         "image": "../../tileset/Cyberpunk_City_Props.png"
       }
     ],
-    "foreground_layers": ["pipes"],
+    "foreground_layers": ["pipes", "high_pipes"],
     "scroll_factors": {
-      "pipes": 1.25,
-      "high_pipes": 1.10
+      "pipes": 1.10,
+      "high_pipes": 1.25
     },
     "collision_layer": "under"
   },

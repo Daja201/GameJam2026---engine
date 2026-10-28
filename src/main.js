@@ -17,6 +17,7 @@ import { registerAction } from './engine/ui/ActionRegistry.js';
 import { buildEngineContext } from './game/EngineContext.js';
 import { registerAllControllers } from './game/bootstrap/registerControllers.js';
 import { MANIFEST_PATHS } from './game/bootstrap/manifestPaths.js';
+import { attachDevPanel } from './engine/devtools/DevPanel.js';
 
 /** Fragments needed to unlock terminal access in this example game (module 09's placeholder). */
 const EXAMPLE_TOTAL_FRAGMENTS = 3;
@@ -141,6 +142,8 @@ class BootScene extends Phaser.Scene {
       screenManager: null,
     });
     engine.screenManager = new ScreenManager(engine);
+    const DEV_MODE = new URLSearchParams(window.location.search).has('dev');
+    if (DEV_MODE) attachDevPanel(engine);
 
     // 6) Register example-content controllers (module 06's registry, this module's classes).
     registerAllControllers();

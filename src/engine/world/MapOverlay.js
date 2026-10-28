@@ -29,7 +29,7 @@ const ARROW_LENGTH = COMPASS_RADIUS - 7;
  *   isOpen: boolean,
  *   toggleFull(): void,
  *   closeFull(): void,
- *   setTarget(target: {x:number,y:number}|null): void,
+ *   setTarget(target: {x:number,y:number}|null, opts?: {questionMark?:boolean}): void,
  *   setVisible(visible: boolean): void,
  *   destroy(): void,
  * }}
@@ -49,13 +49,29 @@ export function createMapOverlay(scene, opts) {
   }).setOrigin(0.5);
   distanceLabel.setScrollFactor(0);
   distanceLabel.setDepth(DEPTH.UI_HUD);
+  const questionMark = scene.add.text(compassCenterX, compassCenterY - 1, '?', {
+    fontFamily: 'monospace',
+    fontSize: '18px',
+    fontStyle: 'bold',
+    color: '#ff3030',
+  }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.UI_HUD + 1).setVisible(false);
+  let questionMarkActive = false;
+  let open = false;
+  let hidden = false;
 
-  const redrawCompass = (target) => {
+  const redrawCompass = (target, showQuestionMark = false) => {
     compass.clear();
     compass.fillStyle(BG_COLOR, 0.95);
     compass.fillCircle(compassCenterX, compassCenterY, COMPASS_RADIUS);
     compass.lineStyle(1, BORDER_COLOR, 1);
     compass.strokeCircle(compassCenterX, compassCenterY, BORDER_RADIUS);
+
+    questionMarkActive = showQuestionMark;
+    questionMark.setVisible(showQuestionMark && !hidden);
+    if (showQuestionMark) {
+      distanceLabel.setText('UNKNOWN');
+      return;
+    }
 
     if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)) {
       distanceLabel.setText('NO TARGET');
@@ -125,12 +141,9 @@ export function createMapOverlay(scene, opts) {
   fullmapHint.setVisible(false);
 
   // Screen-fixed chrome must not appear inside the full-map camera.
-  const ownChrome = [compass, distanceLabel, fullmapDim, fullmapFrame, fullmapHint];
+  const ownChrome = [compass, distanceLabel, questionMark, fullmapDim, fullmapFrame, fullmapHint];
   const fullIgnoreList = [...ignore, ...ownChrome];
   fullmapCam.ignore(fullIgnoreList);
-
-  let open = false;
-  let hidden = false;
 
   return {
     get isOpen() {
@@ -155,8 +168,8 @@ export function createMapOverlay(scene, opts) {
       fullmapHint.setVisible(false);
     },
     /** Redraws the compass for the currently tracked location objective. @returns {void} */
-    setTarget(target) {
-      redrawCompass(target);
+    setTarget(target, opts = {}) {
+      redrawCompass(target, opts.questionMark ?? false);
     },
     /**
      * Shows/hides EVERYTHING this overlay owns (compass included) — used when another screen is
@@ -172,12 +185,14 @@ export function createMapOverlay(scene, opts) {
       if (hidden) this.closeFull();
       compass.setVisible(visible);
       distanceLabel.setVisible(visible);
+      questionMark.setVisible(visible && questionMarkActive);
     },
     /** @returns {void} */
     destroy() {
       scene.cameras.remove(fullmapCam);
       compass.destroy();
       distanceLabel.destroy();
+      questionMark.destroy();
       fullmapDim.destroy();
       fullmapFrame.destroy();
       fullmapHint.destroy();

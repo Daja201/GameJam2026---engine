@@ -57,6 +57,8 @@ const ELEVATOR_QUEST_ID = 'arrive_at_elevator';
 const ELEVATOR_OBJECTIVE_IDS = ['reach_elevator', 'reach_upper_elevator'];
 const WORK_QUEST_ID = 'get_to_work';
 const LOCAL_HELP_QUEST_IDS = ['ask_local_1', 'ask_local_2', 'ask_local_3'];
+const FIND_SUB_QUEST_ID = 'find_sub';
+const UNDERGROUND_HACKER_QUEST_ID = 'find_underground_hacker_community';
 
 /** Mode names. In 'normal' mode E interacts with the world; in 'fight' mode E punches. */
 const MODE_NORMAL = 'normal';
@@ -212,6 +214,9 @@ export class WorldScreenController extends ScreenController {
     this.cityNpc3 = null;
     this.cityNpc4 = null;
     this.hacker = null;
+    this.underComputers = [];
+    this.underHackers = [];
+    this.underComputerAccess = null;
     this._npc3ConversationActive = false;
     this._npc3ConversationComplete = false;
     this._npc4ConversationActive = false;
@@ -264,6 +269,41 @@ export class WorldScreenController extends ScreenController {
         navigationGrid.origin.x + (hackerTile.x + 0.5) * navigationGrid.tileWidth,
         navigationGrid.origin.y + (hackerTile.y + 0.5) * navigationGrid.tileHeight,
       );
+    }
+    if (collisionLayer && tileSize) {
+      const origin = collisionLayer.tileToWorldXY(0, 0);
+      const computerTiles = [20, 21, 23, 24];
+      this.underComputers = computerTiles.map((tileX) => {
+        const computer = new Actor(
+          scene,
+          'computer',
+          origin.x + (tileX + 0.5) * tileSize.width,
+          origin.y + (2 + 0.5) * tileSize.height,
+        );
+        computer.setDirection('north');
+        computer.sprite.setVisible(false);
+        return computer;
+      });
+      this.underHackers = [20, 21, 24].map((tileX) => {
+        const npc = new Actor(
+          scene,
+          'hacker',
+          origin.x + (tileX + 0.5) * tileSize.width,
+          origin.y + (3 + 0.5) * tileSize.height,
+        );
+        npc.setDirection('north');
+        npc.sprite.setVisible(false);
+        return npc;
+      });
+      const interactiveComputerX = origin.x + (23 + 0.5) * tileSize.width;
+      const interactionY = origin.y + (3 + 0.2) * tileSize.height;
+      this.underComputerAccess = new InteractiveObject(scene, interactiveComputerX, interactionY, {
+        width: tileSize.width * 1.5,
+        height: tileSize.height,
+        label: '[E] use computer',
+        onInteract: () => this.engine.screenManager.push('terminal'),
+      });
+      this.underComputerAccess.showPrompt(false);
     }
     // NPC Louisa removed per request — this used to be an `Actor(scene, 'louisa', ...)` spawned
     // here. Left out entirely rather than just hidden, since she's no longer wanted in the scene.
@@ -358,6 +398,8 @@ export class WorldScreenController extends ScreenController {
       else if (id === WORK_QUEST_ID) this._playWorkCutscene();
       else if (id === LOCAL_HELP_QUEST_IDS[0]) QuestManager.assignQuest(LOCAL_HELP_QUEST_IDS[1]);
       else if (id === LOCAL_HELP_QUEST_IDS[1]) QuestManager.assignQuest(LOCAL_HELP_QUEST_IDS[2]);
+      else if (id === LOCAL_HELP_QUEST_IDS[2]) QuestManager.assignQuest(FIND_SUB_QUEST_ID);
+      else if (id === FIND_SUB_QUEST_ID) QuestManager.assignQuest(UNDERGROUND_HACKER_QUEST_ID);
 
       // Reward granting is this content's job, not QuestManager's (see its module docstring's
       // REWARD ITEMS note) — QuestManager only hands the list off on the event payload.
@@ -458,6 +500,10 @@ export class WorldScreenController extends ScreenController {
         this.hacker.update(time, delta);
       }
     }
+    if (this._currentArea === 'under') {
+      for (const computer of this.underComputers) computer.update(time, delta);
+      for (const npc of this.underHackers) npc.update(time, delta);
+    }
     this.teacher.update(time, delta);
     this._keepCatOffPlayer();
     this._sortWorldEntities();
@@ -469,6 +515,11 @@ export class WorldScreenController extends ScreenController {
         this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, droppedItem.object.zone, PICKUP_RADIUS),
       );
     }
+    this.underComputerAccess?.showPrompt(
+      this._currentArea === 'under'
+      && this.mode === MODE_NORMAL
+      && isWithinRadius(this.actor.sprite, this.underComputerAccess.zone, PICKUP_RADIUS),
+    );
 
     // "Getting somewhere" quest progress: fed every frame, same way LoopManager/FxManager usage
     // below is — QuestManager itself does the cheap no-op check when nothing's listening.
@@ -476,14 +527,25 @@ export class WorldScreenController extends ScreenController {
     this._tryStartNpc4Conversation();
     this._tryStartHackerConversation();
     QuestManager.reportLocation('world', this.actor.sprite.x, this.actor.sprite.y);
-    const trackedLocation = QuestManager.getTrackedQuest()?.objectives.find((objective) => (
+    const trackedQuest = QuestManager.getTrackedQuest();
+    const trackedLocation = trackedQuest?.objectives.find((objective) => (
       objective.type === 'reach_location'
       && objective.screenId === 'world'
       && !objective.done
       && Number.isFinite(objective.x)
       && Number.isFinite(objective.y)
     ));
-    this.mapOverlay?.setTarget(trackedLocation ? { x: trackedLocation.x, y: trackedLocation.y } : null);
+    if (trackedQuest?.id === FIND_SUB_QUEST_ID && this.mapSize) {
+      const tileSize = this.background?.getTileSize?.();
+      this.mapOverlay?.setTarget(tileSize ? {
+        x: (CITY_PORTAL_TILE.x + 0.5) * tileSize.width,
+        y: (CITY_PORTAL_TILE.y + 0.5) * tileSize.height,
+      } : null);
+    } else if (trackedQuest?.id === UNDERGROUND_HACKER_QUEST_ID) {
+      this.mapOverlay?.setTarget(null, { questionMark: true });
+    } else {
+      this.mapOverlay?.setTarget(trackedLocation ? { x: trackedLocation.x, y: trackedLocation.y } : null);
+    }
 
     // Usage pattern documented at the top of module 09's FxManager.js.
     const level = LoopManager.glitchLevel();
@@ -520,10 +582,10 @@ export class WorldScreenController extends ScreenController {
     const tileSize = this.background?.getTileSize?.();
     const body = this.actor.sprite.body;
     if (!tileSize || !body) return;
+    const tileX = Math.floor(body.center.x / tileSize.width);
+    const tileY = Math.floor(body.center.y / tileSize.height);
 
     if (this._currentArea === 'city') {
-      const tileX = Math.floor(body.center.x / tileSize.width);
-      const tileY = Math.floor(body.center.y / tileSize.height);
       const atTurretDoor = TURRET_DOOR_TILES.some((tile) => (
         Phaser.Math.Distance.Between(
           body.center.x,
@@ -565,6 +627,19 @@ export class WorldScreenController extends ScreenController {
     }
 
     if (this._currentArea !== 'under') return;
+    if (this._underExitArmed && body.right >= this.mapSize.width) {
+      QuestManager.resetAll();
+      this._showRespawnMessage('a massive rat has eaten you', 2200);
+      return;
+    }
+    if (
+      QuestManager.isQuestActive(UNDERGROUND_HACKER_QUEST_ID)
+      && tileY === 5
+      && tileX >= 21
+      && tileX <= 23
+    ) {
+      QuestManager.completeObjective(UNDERGROUND_HACKER_QUEST_ID, 'reach_hacker_community');
+    }
     if (body.center.x >= tileSize.width * 1.5) this._underExitArmed = true;
     if (this._underExitArmed && body.left <= 2) this._transitionToArea('city');
   }
@@ -673,6 +748,9 @@ export class WorldScreenController extends ScreenController {
           this.cat.teleport(catX, catY);
           this._cityPortalLocked = area === 'city';
           this._underExitArmed = false;
+          if (area === 'under' && QuestManager.isQuestActive(FIND_SUB_QUEST_ID)) {
+            QuestManager.completeObjective(FIND_SUB_QUEST_ID, 'enter_sub');
+          }
         } catch (error) {
           overlay.destroy();
           this._portalTransitionOverlay = null;
@@ -725,12 +803,17 @@ export class WorldScreenController extends ScreenController {
       this.cityNpc3?.sprite.setVisible(false);
       this.cityNpc4?.sprite.setVisible(false);
       this.hacker?.sprite.setVisible(false);
+      for (const computer of this.underComputers) computer.sprite.setVisible(area === 'under');
+      for (const npc of this.underHackers) npc.sprite.setVisible(area === 'under');
     } else {
       for (const group of this.citySoldierGroups) group.setVisible(true);
       this.cityNpc3?.sprite.setVisible(true);
       this.cityNpc4?.sprite.setVisible(true);
       this.hacker?.sprite.setVisible(true);
+      for (const computer of this.underComputers) computer.sprite.setVisible(false);
+      for (const npc of this.underHackers) npc.sprite.setVisible(false);
     }
+    this.underComputerAccess?.showPrompt(false);
 
     this.mapOverlay?.destroy();
     this.mapOverlay = null;
@@ -1083,6 +1166,8 @@ export class WorldScreenController extends ScreenController {
       ...(this.cityNpc3 ? [this.cityNpc3.sprite] : []),
       ...(this.cityNpc4 ? [this.cityNpc4.sprite] : []),
       ...(this.hacker ? [this.hacker.sprite] : []),
+      ...this.underComputers.map((computer) => computer.sprite),
+      ...this.underHackers.map((npc) => npc.sprite),
       this.teacher.sprite,
       ...this.droppedItems.flatMap(({ visual, icon, countLabel }) => [visual, icon, countLabel]),
     ];
@@ -1596,6 +1681,14 @@ export class WorldScreenController extends ScreenController {
     } else if (action === 'interact' && this.mode === MODE_NORMAL) {
       // FIGHT mode's E (punch) is handled by continuous polling in onUpdate instead — see
       // class-level INPUT DESIGN NOTE for why the discrete action isn't used for it.
+      if (
+        this._currentArea === 'under'
+        && this.underComputerAccess
+        && isWithinRadius(this.actor.sprite, this.underComputerAccess.zone, PICKUP_RADIUS)
+      ) {
+        this.underComputerAccess.trigger();
+        return;
+      }
       for (const droppedItem of [...this.droppedItems]) {
         if (isWithinRadius(this.actor.sprite, droppedItem.object.zone, PICKUP_RADIUS)) droppedItem.object.trigger();
       }
@@ -1727,6 +1820,9 @@ export class WorldScreenController extends ScreenController {
     this.cityNpc3?.sprite.destroy();
     this.cityNpc4?.sprite.destroy();
     this.hacker?.sprite.destroy();
+    for (const computer of this.underComputers) computer.sprite.destroy();
+    for (const npc of this.underHackers) npc.sprite.destroy();
+    this.underComputerAccess?.destroy();
     this.teacher.sprite.destroy();
     for (const droppedItem of this.droppedItems) {
       droppedItem.object.destroy();
