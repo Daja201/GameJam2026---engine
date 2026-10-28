@@ -39,6 +39,7 @@ export const MANIFEST_PATHS = {
     // WorldScreenController._playWorkCutscene. 'static' type (single image, see
     // example_room/manifest.json for the pattern), so this only needs an id + one layer image.
     'graphics/backgrounds/work/manifest.json',
+    'graphics/backgrounds/prison/manifest.json',
   ],
   screens: [
     'screens/menu/manifest.json',

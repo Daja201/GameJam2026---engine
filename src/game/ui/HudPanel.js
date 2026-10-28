@@ -39,6 +39,8 @@ export function createHudPanel(scene) {
     { key: 'M', label: 'Map' },
     { key: 'L', label: 'Quest Log' },
     { key: 'I', label: 'Inventory' },
+    { key: 'Q', label: 'Fight mode' },
+    { key: 'E', label: 'Punch / Interact' },
     { key: 'Backspace', label: 'Pause' },
   ];
   const hintText = scene.add.text(

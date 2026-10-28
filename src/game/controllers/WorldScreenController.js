@@ -250,8 +250,6 @@ export class WorldScreenController extends ScreenController {
     this._npc4ConversationComplete = false;
     this._prisonConversationActive = false;
     this._prisonConversationComplete = false;
-    this._prisonDoorCutsceneActive = false;
-    this._prisonDoorCutsceneObjects = [];
     this._hackerConversationActive = false;
     this._hackerConversationComplete = false;
     this._localConversationBubble = null;
@@ -670,7 +668,11 @@ export class WorldScreenController extends ScreenController {
       && Number.isFinite(objective.x)
       && Number.isFinite(objective.y)
     ));
-    if (trackedQuest?.id === FIND_SUB_QUEST_ID && this.mapSize) {
+    if (trackedQuest?.id === FIND_PRISON_QUEST_ID && this._currentArea === 'under') {
+      this.mapOverlay?.setTarget(null, { questionMark: true });
+    } else if (trackedQuest?.id === FIND_PRISON_QUEST_ID && this._currentArea === 'city' && this.cityNpc4) {
+      this.mapOverlay?.setTarget({ x: this.cityNpc4.sprite.x, y: this.cityNpc4.sprite.y });
+    } else if (trackedQuest?.id === FIND_SUB_QUEST_ID && this.mapSize) {
       const tileSize = this.background?.getTileSize?.();
       this.mapOverlay?.setTarget(tileSize ? {
         x: (CITY_PORTAL_TILE.x + 0.5) * tileSize.width,
@@ -733,7 +735,7 @@ export class WorldScreenController extends ScreenController {
       else if (!this._turretDoorLocked) {
         this._turretDoorLocked = true;
         if (QuestManager.isQuestActive(FIND_PRISON_QUEST_ID)) {
-          this._playPrisonDoorPlaceholderCutscene();
+          this._transitionToArea('prison');
         } else {
           QuestManager.resetAll();
           this._showRespawnMessage('you were shot by automatic turret', 2200);
@@ -803,7 +805,7 @@ export class WorldScreenController extends ScreenController {
       INTERNAL_WIDTH + 2,
       INTERNAL_HEIGHT + 2,
       0x000000,
-    ).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY).setAlpha(0);
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY + 8).setAlpha(0);
     this._portalTransitionOverlay = overlay;
     scene.tweens.add({
       targets: overlay,
@@ -848,7 +850,7 @@ export class WorldScreenController extends ScreenController {
   /**
    * Fades the whole scene to black, replaces the tilemap and collision world, then fades back in.
    * @private
-   * @param {'city'|'under'} area
+   * @param {'city'|'under'|'prison'} area
    * @returns {void}
    */
   _transitionToArea(area) {
@@ -865,7 +867,7 @@ export class WorldScreenController extends ScreenController {
       INTERNAL_WIDTH + 2,
       INTERNAL_HEIGHT + 2,
       0x000000,
-    ).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY).setAlpha(0);
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY + 8).setAlpha(0);
     this._portalTransitionOverlay = overlay;
     scene.tweens.add({
       targets: overlay,
@@ -875,21 +877,32 @@ export class WorldScreenController extends ScreenController {
         try {
           this._replaceBackground(area);
           const tileSize = this.background.getTileSize();
-          const destination = area === 'under' ? UNDER_ARRIVAL_TILE : CITY_PORTAL_TILE;
-          const x = (destination.x + 0.5) * tileSize.width;
-          const y = (destination.y + 0.5) * tileSize.height;
+          const x = area === 'prison'
+            ? INTERNAL_WIDTH / 2
+            : (area === 'under' ? UNDER_ARRIVAL_TILE : CITY_PORTAL_TILE).x * tileSize.width
+              + tileSize.width / 2;
+          const y = area === 'prison'
+            ? INTERNAL_HEIGHT
+            : (area === 'under' ? UNDER_ARRIVAL_TILE : CITY_PORTAL_TILE).y * tileSize.height
+              + tileSize.height / 2;
           this.actor.sprite.setPosition(x, y);
           this.actor.sprite.body.reset(x, y);
           this.actor.sprite.body.setVelocity(0, 0);
 
-          const catX = Math.min(this.mapSize.width - 1, x + 24);
-          const catY = Math.min(this.mapSize.height - 1, y + 10);
-          this.cat.teleport(catX, catY);
+          if (area !== 'prison') {
+            const catX = Math.min(this.mapSize.width - 1, x + 24);
+            const catY = Math.min(this.mapSize.height - 1, y + 10);
+            this.cat.teleport(catX, catY);
+          }
           this._cityPortalLocked = area === 'city';
           this._underExitArmed = false;
           if (area === 'under' && QuestManager.isQuestActive(FIND_SUB_QUEST_ID)) {
             QuestManager.completeObjective(FIND_SUB_QUEST_ID, 'enter_sub');
+          } else if (area === 'prison' && QuestManager.isQuestActive(FIND_PRISON_QUEST_ID)) {
+            QuestManager.completeObjective(FIND_PRISON_QUEST_ID, 'locate_provisional_prison');
           }
+          this._sortWorldEntities();
+          if (area === 'prison') this._playPrisonCutscene();
         } catch (error) {
           overlay.destroy();
           this._portalTransitionOverlay = null;
@@ -921,6 +934,102 @@ export class WorldScreenController extends ScreenController {
   }
 
   /**
+   * Dev-panel shortcut into the prison encounter, bypassing its story/quest gates.
+   * @returns {void}
+   */
+  teleportToPrison() {
+    if (this.isTransitioning || this._currentArea === 'prison') return;
+    this._transitionToArea('prison');
+  }
+
+  /**
+   * Plays the prison arrival as a locked, screen-space cutscene over the prison image.
+   * @private
+   * @returns {void}
+   */
+  _playPrisonCutscene() {
+    if (this._cutsceneActive) return;
+    const { scene } = this.engine;
+    const centerX = INTERNAL_WIDTH / 2;
+    this._cutsceneActive = true;
+
+    this.actor.sprite.body.setVelocity(0, 0);
+    this.actor.playState('idle');
+    this.actor.sprite.setVisible(false);
+    this.actor.sprite.body.enable = false;
+    this.cat.sprite.body.setVelocity(0, 0);
+    this.cat.sprite.setVisible(false);
+    this.cat.sprite.body.enable = false;
+    this.modeLabel.setText('CUTSCENE').setColor('#8aa8ff');
+
+    scene.cameras.main.stopFollow();
+    scene.cameras.main.setScroll(0, 0);
+    scene.cameras.main.setBounds(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+
+    const bg = scene.add.image(centerX, INTERNAL_HEIGHT / 2, 'prison:layer:0')
+      .setScrollFactor(0)
+      .setDepth(DEPTH.FX_OVERLAY);
+    bg.setScale(Math.max(INTERNAL_WIDTH / bg.width, INTERNAL_HEIGHT / bg.height));
+
+    const fade = scene.add.rectangle(
+      centerX,
+      INTERNAL_HEIGHT / 2,
+      INTERNAL_WIDTH + 2,
+      INTERNAL_HEIGHT + 2,
+      0x000000,
+    ).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY + 3).setAlpha(1);
+
+    const makeStandIn = (spriteId, x, y, scale, direction) => {
+      const actor = new Actor(scene, spriteId, x, y);
+      actor.sprite.body.enable = false;
+      actor.sprite.setCollideWorldBounds(false);
+      actor.sprite.setScrollFactor(0);
+      actor.sprite.setDepth(DEPTH.FX_OVERLAY + 1);
+      actor.sprite.setScale(scale);
+      actor.setDirection(direction);
+      return actor;
+    };
+
+    const soldierLeft = makeStandIn('soldier', centerX - 68, 78, 1.4, 'east');
+    const louisa = makeStandIn('louisa', centerX, 78, 1.4, 'north');
+    const soldierRight = makeStandIn('soldier', centerX + 68, 78, 1.4, 'west');
+    const mainChar = makeStandIn('main_char', centerX - 120, INTERNAL_HEIGHT + 40, 3, 'north-east');
+    this._cutsceneActors = [mainChar, louisa, soldierLeft, soldierRight];
+
+    const delayedCalls = [];
+    this._cutsceneHandles = { bg, fade, delayedCalls };
+    const delay = (duration, callback) => {
+      delayedCalls.push(scene.time.delayedCall(duration, callback));
+    };
+    const moveDuration = 1500;
+
+    scene.tweens.add({
+      targets: fade,
+      alpha: 0,
+      duration: PORTAL_FADE_MS,
+      onComplete: () => {
+        mainChar.setDirectionFromVector(120, -150, 'walk');
+        scene.tweens.add({
+          targets: mainChar.sprite,
+          x: centerX,
+          y: INTERNAL_HEIGHT * 0.58,
+          scaleX: 2,
+          scaleY: 2,
+          duration: moveDuration,
+          onComplete: () => {
+            mainChar.setDirection('north');
+            mainChar.playState('idle');
+            delay(350, () => {
+              soldierLeft.setDirection('south-east');
+              soldierRight.setDirection('south-west');
+            });
+          },
+        });
+      },
+    });
+  }
+
+  /**
    * Plays the first cutscene from the dev panel without completing its quest.
    * @returns {void}
    */
@@ -931,7 +1040,7 @@ export class WorldScreenController extends ScreenController {
   /**
    * Replaces the active background and refreshes all map-bound world systems.
    * @private
-   * @param {'city'|'under'} area
+   * @param {'city'|'under'|'prison'} area
    * @returns {void}
    */
   _replaceBackground(area) {
@@ -1071,7 +1180,9 @@ export class WorldScreenController extends ScreenController {
       }
     }
     this.actor.sprite.setCollideWorldBounds(Boolean(this.mapSize));
-    this.cat.sprite.setCollideWorldBounds(Boolean(this.mapSize));
+    this.cat.sprite.setCollideWorldBounds(Boolean(this.mapSize) && area !== 'prison');
+    this.cat.sprite.body.enable = area !== 'prison';
+    this.cat.sprite.setVisible(area !== 'prison');
     this.cat.setNavigationMap(collisionLayer, partialHitboxGroup);
 
     this._tileDebugGraphic?.destroy();
@@ -1147,7 +1258,7 @@ export class WorldScreenController extends ScreenController {
       louisa: { 32: { contentHeight: 30, bottomPad: 1 }, 48: { contentHeight: 30, bottomPad: 9 } },
       soldier: { 48: { contentHeight: 32, bottomPad: 6 } },
     };
-    const TARGET_CONTENT_HEIGHT_PX = (INTERNAL_HEIGHT / 3) * 2;
+    const TARGET_CONTENT_HEIGHT_PX = INTERNAL_HEIGHT / 3;
 
     /**
      * Rescales `standIn` so its actual art (not its canvas) is `TARGET_CONTENT_HEIGHT_PX` tall,
@@ -1322,12 +1433,6 @@ export class WorldScreenController extends ScreenController {
       duration: PORTAL_FADE_MS,
       onComplete: () => {
         this._destroyCutscene();
-        for (const object of this._prisonDoorCutsceneObjects) {
-          this.engine.scene.tweens.killTweensOf(object);
-          object.destroy();
-        }
-        this._prisonDoorCutsceneObjects = [];
-
         this.actor.sprite.setPosition(returnX, returnY);
         this.actor.sprite.body.reset(returnX, returnY);
         this.actor.sprite.body.enable = true;
@@ -1371,8 +1476,11 @@ export class WorldScreenController extends ScreenController {
     this._cutsceneActors = [];
     if (this._cutsceneHandles) {
       this.engine.scene.tweens.killTweensOf(this._cutsceneHandles.fade);
+      for (const delayedCall of this._cutsceneHandles.delayedCalls ?? []) {
+        delayedCall.remove(false);
+      }
       this._cutsceneHandles.bg.destroy();
-      this._cutsceneHandles.fade.destroy();
+      this._cutsceneHandles.fade?.destroy();
       this._cutsceneHandles = null;
     }
   }
@@ -1645,8 +1753,9 @@ export class WorldScreenController extends ScreenController {
   _spawnPunchParticles(direction) {
     const { scene } = this.engine;
     const hand = PUNCH_HAND_OFFSETS[direction] ?? PUNCH_HAND_OFFSETS.south;
-    const originX = this.actor.sprite.x + hand.x;
-    const originY = this.actor.sprite.y + hand.y;
+    const scale = this._currentArea === 'prison' ? this.actor.sprite.scaleX : 1;
+    const originX = this.actor.sprite.x + hand.x * scale;
+    const originY = this.actor.sprite.y + hand.y * scale;
     const depth = DEPTH.WORLD_ENTITIES + (direction.startsWith('north') ? -1 : 1);
 
     for (let i = 0; i < 7; i += 1) {
@@ -1914,43 +2023,6 @@ export class WorldScreenController extends ScreenController {
   }
 
   /**
-   * Stops at the prison entrance with a minimal placeholder instead of triggering the old
-   * turret death/reset. Story continuation is intentionally left for a later implementation.
-   * @private
-   * @returns {void}
-   */
-  _playPrisonDoorPlaceholderCutscene() {
-    if (this._prisonDoorCutsceneActive) return;
-    const { scene } = this.engine;
-    this._prisonDoorCutsceneActive = true;
-    this.isTransitioning = true;
-    this.actor.sprite.body.setVelocity(0, 0);
-    this.actor.sprite.body.enable = false;
-    this.actor.playState('idle');
-
-    const backdrop = scene.add.rectangle(
-      INTERNAL_WIDTH / 2,
-      INTERNAL_HEIGHT / 2,
-      INTERNAL_WIDTH + 2,
-      INTERNAL_HEIGHT + 2,
-      0x000000,
-    ).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY + 4).setAlpha(0);
-    const title = scene.add.text(
-      INTERNAL_WIDTH / 2,
-      INTERNAL_HEIGHT / 2,
-      'PROVISIONAL PRISON\n\nTO BE CONTINUED',
-      { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff', align: 'center' },
-    ).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY + 5).setAlpha(0);
-    this._prisonDoorCutsceneObjects = [backdrop, title];
-
-    scene.tweens.add({
-      targets: [backdrop, title],
-      alpha: 1,
-      duration: PORTAL_FADE_MS,
-    });
-  }
-
-  /**
    * Turns the hacker toward the player while the third local-help quest is active.
    * @private
    * @returns {void}
@@ -2097,7 +2169,7 @@ export class WorldScreenController extends ScreenController {
   onInput(action, event) {
     // Game must be fully unresponsive to keypresses while a cutscene plays (map toggle, pause
     // menu, interact, inventory — all of it).
-    if (this._cutsceneActive || this._prisonDoorCutsceneActive) return;
+    if (this._cutsceneActive) return;
     if (
       this._npc3ConversationActive
       || this._npc4ConversationActive

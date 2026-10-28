@@ -190,13 +190,13 @@
     {
       "id": "find_provisional_prison",
       "title": "The Provisional Prison",
-      "description": "The breach turned up a transfer order: Louisa isn't at the facility anymore — she's being held at the government's provisional prison. Find it.",
+      "description": "Reach the provisional prison and find Louisa.",
       "objectives": [
         {
           "id": "locate_provisional_prison",
           "type": "custom",
           "count": 1,
-          "description": "Find the location of the government provisional prison"
+          "description": "Find Louisa at the government provisional prison"
         }
       ]
     }

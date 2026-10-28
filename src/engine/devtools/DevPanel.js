@@ -187,6 +187,17 @@ export function attachDevPanel(engine, options = {}) {
       },
     }));
     panel.appendChild(h('button', {
+      text: 'teleport to prison cutscene',
+      onclick: () => {
+        const worldController = engine.worldController;
+        if (typeof worldController?.teleportToPrison !== 'function') {
+          console.warn('[DevPanel] the world screen is not active; cannot teleport to prison.');
+          return;
+        }
+        worldController.teleportToPrison();
+      },
+    }));
+    panel.appendChild(h('button', {
       text: 'playcutscene1',
       onclick: () => {
         const worldController = engine.worldController;

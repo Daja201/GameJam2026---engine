@@ -1,0 +1,8 @@
+{
+  "id": "prison",
+  "display_name": "Provisional Prison",
+  "type": "static",
+  "layers": [
+    { "image": "prison.png" }
+  ]
+}
