@@ -1,0 +1,8 @@
+{
+  "id": "work",
+  "display_name": "Work (cutscene backdrop)",
+  "type": "static",
+  "layers": [
+    { "image": "work.png" }
+  ]
+}

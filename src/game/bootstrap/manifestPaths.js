@@ -23,11 +23,19 @@ export const MANIFEST_PATHS = {
     'graphics/sprites/computer/manifest.json',
     'graphics/sprites/npc1/manifest.json',
     'graphics/sprites/npc2/manifest.json',
+    // Re-added for the "get to work" cutscene (WorldScreenController._playWorkCutscene) — the
+    // sprite art was always here (graphics/sprites/louisa/), it just wasn't wired into the
+    // preload list since the last in-world Louisa Actor was removed.
+    'graphics/sprites/louisa/manifest.json',
   ],
   backgrounds: [
     'graphics/backgrounds/example_room/manifest.json',
     'graphics/backgrounds/city/manifest.json',
     'graphics/backgrounds/under/manifest.json',
+    // Full-screen cutscene backdrop for the "get to work" cutscene — see
+    // WorldScreenController._playWorkCutscene. 'static' type (single image, see
+    // example_room/manifest.json for the pattern), so this only needs an id + one layer image.
+    'graphics/backgrounds/work/manifest.json',
   ],
   screens: [
     'screens/menu/manifest.json',

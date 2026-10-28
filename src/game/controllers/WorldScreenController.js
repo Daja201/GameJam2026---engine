@@ -18,6 +18,7 @@ import { animKey } from '../../engine/sprites/AnimationFactory.js';
 import { createHudPanel } from '../ui/HudPanel.js';
 import { createMapOverlay } from '../../engine/world/MapOverlay.js';
 import { BackgroundLoader } from '../../engine/world/BackgroundLoader.js';
+import { createSpeechBubble } from '../../engine/ui/SpeechBubble.js';
 
 /** Toast accent colors by quest-event category — kept here (content), not in ToastNotifier (generic). */
 const TOAST_ACCENT_STARTED = 0x8aa8ff;
@@ -28,8 +29,6 @@ const TOAST_ACCENT_COMPLETE = 0x6fe39a;
 const WALK_SPEED = 60;
 /** How close the player must be to a dropped inventory item to pick it up. */
 const PICKUP_RADIUS = 20;
-/** How close the player must be to the "PC" prop to interact with it. */
-const INTERACT_RADIUS = 28;
 
 /** How close the cat must be to the player's punching hand for a fight-mode hit to land on it. */
 const CAT_HIT_RADIUS = 20;
@@ -55,14 +54,7 @@ const CITY_SHORTCUTS = {
 const ELEVATOR_QUEST_ID = 'arrive_at_elevator';
 const ELEVATOR_OBJECTIVE_IDS = ['reach_elevator', 'reach_upper_elevator'];
 const WORK_QUEST_ID = 'get_to_work';
-
-/**
- * Quest content for this room (THIS controller's own example content — the quest engine,
- * `engine/quest/QuestManager.js`, knows nothing about any of these ids; see its module docstring
- * for the "no content coupling" reasoning). `world_pc`/the `world` screen id here
- * must exactly match what `/config/quests.default.json` references for those quests to progress.
- */
-const WORLD_PC_INTERACT_ID = 'world_pc';
+const LOCAL_HELP_QUEST_IDS = ['ask_local_1', 'ask_local_2', 'ask_local_3'];
 
 /** Mode names. In 'normal' mode E interacts with the world; in 'fight' mode E punches. */
 const MODE_NORMAL = 'normal';
@@ -242,6 +234,14 @@ export class WorldScreenController extends ScreenController {
     // "teach" is cutscene-only: present in the scene (keeps colliding/updating normally) but
     // invisible until a cutscene explicitly shows it with `this.teacher.sprite.setVisible(true)`.
     this.teacher.sprite.setVisible(false);
+
+    // "Get to work" cutscene state (see `_playWorkCutscene`). `_cutsceneActive` is checked at the
+    // top of `onUpdate`/`onInput` to fully freeze normal gameplay (movement, prompts, the pause
+    // menu, etc.) while a cutscene is playing; `_cutsceneActors` are the cutscene's own stand-in
+    // Actors (not `this.actor`/`this.cat`), updated every frame so their animations advance even
+    // though normal `onUpdate` is short-circuited.
+    this._cutsceneActive = false;
+    this._cutsceneActors = [];
     // NOTE: blocking the player from walking THROUGH the cat is handled by `_keepCatOffPlayer`
     // (called from onUpdate, after both actor/cat `update()`), NOT by `physics.add.collider`.
     // An Arcade collider was tried here first and caused the camera to visibly shake while
@@ -252,31 +252,6 @@ export class WorldScreenController extends ScreenController {
     // pushes both sides apart by default — that tug-of-war also kept nudging the player, which
     // the camera follows. `_keepCatOffPlayer` resolves the same overlap but only ever moves the
     // cat, so the player (and the camera) stay untouched by it.
-
-    const pcX = spawnX + 40;
-    const pcY = spawnY;
-    // Visual for the trigger zone — InteractiveObject itself only builds the invisible zone.
-    this.pcVisual = scene.add.rectangle(pcX, pcY, 14, 14, 0x334455).setDepth(DEPTH.WORLD_ENTITIES);
-    this.pcVisual.setStrokeStyle(1, 0x8aa8ff);
-
-    this.pc = new InteractiveObject(scene, pcX, pcY, {
-      width: 20,
-      height: 20,
-      label: '[E] interact',
-      onInteract: () => {
-        // Quest progress and the actual gameplay effect (opening the Terminal screen) are
-        // independent of each other on purpose: QuestManager doesn't know or care WHY this
-        // target was interacted with, and the Terminal would open the same way with zero
-        // quests assigned to it.
-        QuestManager.triggerInteract(WORLD_PC_INTERACT_ID);
-        this.engine.screenManager.push('terminal');
-      },
-    });
-    // Blocks the player from walking through the PC prop. Separate from interact detection:
-    // `onUpdate` still decides whether `[E]` is usable via `isWithinRadius(INTERACT_RADIUS)`
-    // against `this.pc.zone`'s x/y (a distance check, not a physics overlap), so making the
-    // zone solid here doesn't change when the prompt shows or when interact fires.
-    scene.physics.add.collider(this.actor.sprite, this.pc.zone);
 
     this.droppedItems = [];
     this._onInventoryItemDropped = ({ itemId, amount }) => this._createDroppedItem(itemId, amount);
@@ -343,6 +318,9 @@ export class WorldScreenController extends ScreenController {
       const quest = QuestManager.getQuest(id);
       if (quest) this.toasts.show(`Quest Complete: ${quest.title}`, { accentColor: TOAST_ACCENT_COMPLETE });
       if (id === ELEVATOR_QUEST_ID) QuestManager.assignQuest(WORK_QUEST_ID);
+      else if (id === WORK_QUEST_ID) this._playWorkCutscene();
+      else if (id === LOCAL_HELP_QUEST_IDS[0]) QuestManager.assignQuest(LOCAL_HELP_QUEST_IDS[1]);
+      else if (id === LOCAL_HELP_QUEST_IDS[1]) QuestManager.assignQuest(LOCAL_HELP_QUEST_IDS[2]);
 
       // Reward granting is this content's job, not QuestManager's (see its module docstring's
       // REWARD ITEMS note) — QuestManager only hands the list off on the event payload.
@@ -402,6 +380,14 @@ export class WorldScreenController extends ScreenController {
   onUpdate(time, delta) {
     const { scene } = this.engine;
     if (this.isTransitioning) return;
+    if (this._cutsceneActive) {
+      // Everything about the cutscene's blocking/pacing (positions, turns, dialogue timing) is
+      // driven by the tween/delayedCall chain `_playWorkCutscene` sets up, not by per-frame logic
+      // here — the only thing that still needs a frame tick is each stand-in Actor's own
+      // animation advance (walk-cycle frames etc.), same as `this.actor.update(...)` below.
+      for (const cutsceneActor of this._cutsceneActors) cutsceneActor.update(time, delta);
+      return;
+    }
 
     // Full map open: feet planted (same reasoning as mid-punch) so the player doesn't wander
     // off-screen while looking at the map; everything else (HUD, quest tracking, fx) keeps going.
@@ -427,10 +413,6 @@ export class WorldScreenController extends ScreenController {
     this._sortWorldEntities();
     this._checkPortalTransition();
     if (this.isTransitioning) return;
-
-    // In fight mode E punches rather than interacts, so the "[E] interact" prompt would be
-    // misleading there — only show it in normal mode.
-    this.pc.showPrompt(this.mode === MODE_NORMAL && isWithinRadius(this.actor.sprite, this.pc.zone, INTERACT_RADIUS));
 
     for (const droppedItem of this.droppedItems) {
       droppedItem.object.showPrompt(
@@ -730,6 +712,286 @@ export class WorldScreenController extends ScreenController {
   }
 
   /**
+   * "Get to work" story beat, played once `WORK_QUEST_ID` completes (see `_onQuestCompleted`).
+   * Fullscreen, letterboxed-sidescroller-style cutscene over a static `work.png` backdrop: the
+   * player meets Louisa, soldiers arrive and take her away, the player is left behind. Entirely
+   * screen-space (every GameObject here is `setScrollFactor(0)`, positioned in INTERNAL_WIDTH/
+   * HEIGHT pixel coordinates) — it does not touch the camera or the real world background at all,
+   * it just draws on top of everything at `DEPTH.FX_OVERLAY` and above.
+   *
+   * Uses dedicated throwaway stand-in Actors (`_cutsceneActors`), not `this.actor`/`this.cat` —
+   * the real player/cat sprites are hidden + physics-disabled for the duration and restored
+   * untouched at the end, at the exact spot the player was standing when the quest completed
+   * ("spawn back on location where he appeared").
+   * @private
+   * @returns {void}
+   */
+  _playWorkCutscene() {
+    if (this._cutsceneActive) return;
+    const { scene } = this.engine;
+    this._cutsceneActive = true;
+
+    // Freeze + hide the real player/cat. Remembered position is exactly where the cutscene hands
+    // control back afterward.
+    const returnX = this.actor.sprite.x;
+    const returnY = this.actor.sprite.y;
+    this.actor.sprite.body.setVelocity(0, 0);
+    this.actor.playState('idle');
+    this.actor.sprite.setVisible(false);
+    this.actor.sprite.body.enable = false;
+    this.cat.sprite.body.setVelocity(0, 0);
+    this.cat.sprite.setVisible(false);
+    this.cat.sprite.body.enable = false;
+
+    const CENTER_X = INTERNAL_WIDTH / 2;
+    const GROUND_Y = INTERNAL_HEIGHT - 46;
+    const WALK_SPEED_PX_S = 70;
+    const FADE_MS = PORTAL_FADE_MS;
+
+    // Visible-art metrics measured directly off each sprite's PNGs — NOT `manifest.frame_size`,
+    // which is only a nominal authoring size. main_char/louisa's idle art sits on a tightly
+    // cropped 32x32 canvas, but their walk art (and the soldier's only state, idle) is drawn on a
+    // roomier 48x48 canvas with a lot of transparent padding baked in above/below the character.
+    // Scaling/anchoring off the raw canvas size (what this code used to do) broke two ways:
+    //  - the soldier's art only fills ~2/3 of its 48px canvas (vs ~94% for main_char/louisa's
+    //    32px canvas), so it rendered visibly smaller than everyone else.
+    //  - main_char/louisa ballooned to ~1.5x size and walked with their feet floating above the
+    //    ground line while in 'walk' (bigger canvas, same fixed origin), then visibly snapped
+    //    down to the correct size/position the instant they went back to 'idle' and the 32px
+    //    canvas took over — i.e. exactly the "upper Y then teleport down" symptom.
+    // `contentHeight` is how tall the actual (non-transparent) art is; `bottomPad` is how much
+    // transparent canvas sits below the feet on that canvas size. Keyed by real frame height (px).
+    const CUTSCENE_ART_METRICS = {
+      main_char: { 32: { contentHeight: 30, bottomPad: 1 }, 48: { contentHeight: 30, bottomPad: 9 } },
+      louisa: { 32: { contentHeight: 30, bottomPad: 1 }, 48: { contentHeight: 30, bottomPad: 9 } },
+      soldier: { 48: { contentHeight: 32, bottomPad: 6 } },
+    };
+    const TARGET_CONTENT_HEIGHT_PX = INTERNAL_HEIGHT / 3; // on-screen art height all stand-ins share
+
+    /**
+     * Rescales `standIn` so its actual art (not its canvas) is `TARGET_CONTENT_HEIGHT_PX` tall,
+     * and repositions its origin so its feet land exactly on `groundY` — using the REAL pixel
+     * size of whichever frame it's currently showing. Must be re-run any time a stand-in's state
+     * (idle vs walk) might have changed its underlying canvas size; see `CUTSCENE_ART_METRICS`.
+     */
+    const syncGroundAnchor = (standIn, groundY) => {
+      const frameHeight = standIn.sprite.frame.height;
+      const metrics = CUTSCENE_ART_METRICS[standIn.id]?.[frameHeight];
+      if (!metrics) return; // unrecognized canvas size for this sprite — leave as-is rather than guess
+      standIn.sprite.setScale(TARGET_CONTENT_HEIGHT_PX / metrics.contentHeight);
+      standIn.sprite.setOrigin(0.5, (frameHeight - metrics.bottomPad) / frameHeight);
+      standIn.sprite.y = groundY;
+    };
+
+    /** Faces `standIn` a direction/state, then re-syncs its scale/ground-anchor for that frame. */
+    const turn = (standIn, dx, dy, state) => {
+      standIn.setDirectionFromVector(dx, dy, state);
+      syncGroundAnchor(standIn, GROUND_Y);
+    };
+
+    /** Builds one screen-space, physics-off stand-in Actor for this cutscene. */
+    const makeStandIn = (spriteId, x, y) => {
+      const standIn = new Actor(scene, spriteId, x, y);
+      standIn.sprite.body.enable = false;
+      standIn.sprite.setCollideWorldBounds(false);
+      standIn.sprite.setScrollFactor(0);
+      standIn.sprite.setDepth(DEPTH.FX_OVERLAY + 1);
+      syncGroundAnchor(standIn, y);
+      return standIn;
+    };
+
+    const mainChar = makeStandIn('main_char', -60, GROUND_Y);
+    const louisa = makeStandIn('louisa', CENTER_X, GROUND_Y);
+    const soldierLeft = makeStandIn('soldier', INTERNAL_WIDTH + 60, GROUND_Y);
+    const soldierRight = makeStandIn('soldier', INTERNAL_WIDTH + 130, GROUND_Y);
+    turn(louisa, -1, 0, 'idle'); // watching west, toward where the player enters
+    this._cutsceneActors = [mainChar, louisa, soldierLeft, soldierRight];
+
+    const mainCharStopX = CENTER_X - 70; // eye-to-eye, just west of Louisa
+    const soldierLeftStopX = CENTER_X + 72; // nearer pair member — ends up "the soldier on the left"
+    const soldierRightStopX = CENTER_X + 134;
+    const betweenStopX = (mainCharStopX + CENTER_X) / 2; // where soldierLeft steps in to separate them
+    const exitX = INTERNAL_WIDTH + 90;
+
+    // `moveState` defaults to 'walk' but falls back to 'idle' for any actor whose manifest has no
+    // walk animation at all (none left in this cutscene — "soldier" now has one too — but this
+    // keeps `walkTween` safe for a future stand-in that's idle-only; `Actor.playState`/
+    // `setDirectionFromVector` throw for a state the manifest doesn't have).
+    const walkTween = (standIn, toX, onComplete, moveState = standIn.manifest.states.walk ? 'walk' : 'idle') => {
+      const distance = Math.abs(toX - standIn.sprite.x);
+      const direction = toX >= standIn.sprite.x ? 1 : -1;
+      turn(standIn, direction, 0, moveState);
+      scene.tweens.add({
+        targets: standIn.sprite,
+        x: toX,
+        duration: Math.max(1, (distance / WALK_SPEED_PX_S) * 1000),
+        onComplete: () => {
+          turn(standIn, direction, 0, 'idle');
+          onComplete?.();
+        },
+      });
+    };
+
+    /** Speech bubble anchored above a stand-in's current head position. */
+    const say = (standIn, text, holdMs, onDone) => {
+      createSpeechBubble(
+        scene,
+        standIn.sprite.x,
+        standIn.sprite.y - standIn.sprite.displayHeight * 0.95,
+        text,
+        { holdMs, onDestroy: onDone },
+      );
+    };
+
+    // Fullscreen backdrop, drawn to COVER the whole screen (crop any overflow) rather than the
+    // letterboxed "contain" fit `BackgroundLoader`'s own 'static' branch uses — this has to fully
+    // blot out the GUI/world underneath with no gaps, not just sit inside the frame.
+    const bg = scene.add.image(CENTER_X, INTERNAL_HEIGHT / 2, 'work:layer:0')
+      .setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY);
+    bg.setScale(Math.max(INTERNAL_WIDTH / bg.width, INTERNAL_HEIGHT / bg.height));
+
+    const fade = scene.add.rectangle(CENTER_X, INTERNAL_HEIGHT / 2, INTERNAL_WIDTH + 2, INTERNAL_HEIGHT + 2, 0x000000)
+      .setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY + 3).setAlpha(1);
+
+    this._cutsceneHandles = { bg, fade, mainChar, louisa, soldierLeft, soldierRight };
+
+    // --- Timeline -----------------------------------------------------------------------------
+    scene.tweens.add({
+      targets: fade,
+      alpha: 0,
+      duration: FADE_MS,
+      onComplete: () => {
+        // Step 1: player walks in from the left border, eye-to-eye with Louisa.
+        walkTween(mainChar, mainCharStopX, () => {
+          scene.time.delayedCall(250, () => {
+            // Step 2: both say "Hi".
+            say(mainChar, 'Hi!', 1200);
+            say(louisa, 'Hi!', 1200, () => {
+              scene.time.delayedCall(250, () => {
+                // Step 3: two soldiers arrive from the right border, looking west.
+                let arrived = 0;
+                const onSoldierArrived = () => {
+                  arrived += 1;
+                  if (arrived < 2) return;
+                  scene.time.delayedCall(300, () => {
+                    // Step 4: Louisa turns (in place) to face the soldiers.
+                    turn(louisa, 1, 0, 'idle');
+                    scene.time.delayedCall(400, () => {
+                      // Step 5: soldier delivers the line.
+                      say(soldierLeft, "You have to come with us.\nYou're not good for the system.", 2600, () => {
+                        scene.time.delayedCall(200, () => {
+                          // Step 6: the nearer soldier steps between Louisa and the player.
+                          walkTween(soldierLeft, betweenStopX, () => {
+                            scene.time.delayedCall(250, () => {
+                              // Step 7: Louisa + both soldiers turn east and walk out the right border.
+                              turn(louisa, 1, 0, 'idle');
+                              turn(soldierRight, 1, 0, 'idle');
+                              let exited = 0;
+                              const onExited = () => {
+                                exited += 1;
+                                if (exited < 3) return;
+                                louisa.sprite.setVisible(false);
+                                soldierLeft.sprite.setVisible(false);
+                                soldierRight.sprite.setVisible(false);
+                                scene.time.delayedCall(300, () => {
+                                  // Step 8: the player's final line, then end the cutscene.
+                                  say(
+                                    mainChar,
+                                    'No, this shouldn\u2019t have happened.\nShe is my friend.\nI hate this system.\nI must save her somehow.',
+                                    3400,
+                                    () => this._endWorkCutscene(fade, returnX, returnY),
+                                  );
+                                });
+                              };
+                              walkTween(louisa, exitX, onExited);
+                              walkTween(soldierLeft, exitX, onExited);
+                              walkTween(soldierRight, exitX, onExited);
+                            });
+                          });
+                        });
+                      });
+                    });
+                  });
+                };
+                walkTween(soldierLeft, soldierLeftStopX, onSoldierArrived);
+                walkTween(soldierRight, soldierRightStopX, onSoldierArrived);
+              });
+            });
+          });
+        });
+      },
+    });
+  }
+
+  /**
+   * Fades the "get to work" cutscene out, tears down every cutscene-only GameObject, and hands
+   * control back to the player at the exact spot they were at when the cutscene started.
+   * @private
+   * @param {Phaser.GameObjects.Rectangle} fade - the cutscene's own fade overlay, reused for the
+   *   fade-out (so there's one continuous black hold instead of a visible flash between overlays)
+   * @param {number} returnX
+   * @param {number} returnY
+   * @returns {void}
+   */
+  _endWorkCutscene(fade, returnX, returnY) {
+    const { scene } = this.engine;
+    scene.tweens.add({
+      targets: fade,
+      alpha: 1,
+      duration: PORTAL_FADE_MS,
+      onComplete: () => {
+        this._destroyCutscene();
+
+        this.actor.sprite.setPosition(returnX, returnY);
+        this.actor.sprite.body.reset(returnX, returnY);
+        this.actor.sprite.body.enable = true;
+        this.actor.sprite.setVisible(true);
+        this.actor.playState('idle');
+
+        const catX = Math.min(this.mapSize?.width ?? INTERNAL_WIDTH, returnX + 24);
+        const catY = Math.min(this.mapSize?.height ?? INTERNAL_HEIGHT, returnY + 10);
+        this.cat.sprite.body.enable = true;
+        this.cat.sprite.setVisible(true);
+        this.cat.teleport(catX, catY);
+
+        this._cutsceneActive = false;
+        QuestManager.assignQuest(LOCAL_HELP_QUEST_IDS[0]);
+
+        const revealFade = scene.add.rectangle(
+          INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2, INTERNAL_WIDTH + 2, INTERNAL_HEIGHT + 2, 0x000000,
+        ).setScrollFactor(0).setDepth(DEPTH.FX_OVERLAY + 3).setAlpha(1);
+        scene.tweens.add({
+          targets: revealFade,
+          alpha: 0,
+          duration: PORTAL_FADE_MS,
+          onComplete: () => revealFade.destroy(),
+        });
+      },
+    });
+  }
+
+  /**
+   * Tears down every GameObject/tween/timer the work cutscene created, if any. Idempotent — safe
+   * to call whether or not a cutscene is currently active (used both at the cutscene's own normal
+   * end and from `onExit`, in case the screen is torn down mid-cutscene).
+   * @private
+   * @returns {void}
+   */
+  _destroyCutscene() {
+    for (const cutsceneActor of this._cutsceneActors) {
+      this.engine.scene.tweens.killTweensOf(cutsceneActor.sprite);
+      cutsceneActor.sprite.destroy();
+    }
+    this._cutsceneActors = [];
+    if (this._cutsceneHandles) {
+      this.engine.scene.tweens.killTweensOf(this._cutsceneHandles.fade);
+      this._cutsceneHandles.bg.destroy();
+      this._cutsceneHandles.fade.destroy();
+      this._cutsceneHandles = null;
+    }
+  }
+
+  /**
    * Sorts world characters and props by their ground-contact Y position, keeping the result
    * inside the world-entity depth band so foreground layers and the HUD remain above them.
    * @private
@@ -744,7 +1006,6 @@ export class WorldScreenController extends ScreenController {
       ...this.cityNpcs.map((npc) => npc.sprite),
       ...this.citySoldierGroups.flatMap((group) => group.actors.map((actor) => actor.sprite)),
       this.teacher.sprite,
-      this.pcVisual,
       ...this.droppedItems.flatMap(({ visual, icon, countLabel }) => [visual, icon, countLabel]),
     ];
 
@@ -830,8 +1091,8 @@ export class WorldScreenController extends ScreenController {
    * Ordinary WASD movement + idle/walk, used in NORMAL mode.
    *
    * FIX (collision): this used to move the player by writing `sprite.x`/`sprite.y` directly
-   * every frame. That's why walls, the cat and the PC prop never actually stopped the player
-   * even once their colliders were registered: Arcade's collision separation runs as part of
+   * every frame. That's why walls and the cat never actually stopped the player even once their
+   * colliders were registered: Arcade's collision separation runs as part of
    * the physics engine's own step, which happens BEFORE this controller's `onUpdate` runs each
    * frame (see ScreenManager's doc) — so any separation a collider applied was immediately
    * undone the instant this method wrote a fresh raw position straight over it. Moving via
@@ -1051,6 +1312,9 @@ export class WorldScreenController extends ScreenController {
    * @returns {void}
    */
   onInput(action, event) {
+    // Game must be fully unresponsive to keypresses while a cutscene plays (map toggle, pause
+    // menu, interact, inventory — all of it).
+    if (this._cutsceneActive) return;
     if (action === 'toggle-map') {
       this.mapOverlay?.toggleFull();
     } else if (action === 'toggle-mode') {
@@ -1065,7 +1329,6 @@ export class WorldScreenController extends ScreenController {
     } else if (action === 'interact' && this.mode === MODE_NORMAL) {
       // FIGHT mode's E (punch) is handled by continuous polling in onUpdate instead — see
       // class-level INPUT DESIGN NOTE for why the discrete action isn't used for it.
-      if (isWithinRadius(this.actor.sprite, this.pc.zone, INTERACT_RADIUS)) this.pc.trigger();
       for (const droppedItem of [...this.droppedItems]) {
         if (isWithinRadius(this.actor.sprite, droppedItem.object.zone, PICKUP_RADIUS)) droppedItem.object.trigger();
       }
@@ -1174,13 +1437,12 @@ export class WorldScreenController extends ScreenController {
       this.engine.scene.physics.world.removeCollider(collider);
     }
     this._portalTransitionOverlay?.destroy();
+    this._destroyCutscene();
     this.actor.sprite.destroy();
     this.cat.destroy();
     for (const npc of this.cityNpcs) npc.destroy();
     for (const group of this.citySoldierGroups) group.destroy();
     this.teacher.sprite.destroy();
-    this.pc.destroy();
-    this.pcVisual.destroy();
     for (const droppedItem of this.droppedItems) {
       droppedItem.object.destroy();
       droppedItem.visual.destroy();

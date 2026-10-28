@@ -17,6 +17,14 @@
       "frame_rate": 1,
       "loop": true,
       "source": "Idle/rotations/{direction}.png"
+    },
+    "walk": {
+      "type": "animated-per-direction",
+      "frame_rate": 8,
+      "loop": true,
+      "frame_count": 8,
+      "source": "Idle/animations/Walking/{direction}/frame_{frame:03d}.png",
+      "fallback": "idle"
     }
   },
   "hitbox": { "width": 14, "height": 10, "margin_bottom": 4 },

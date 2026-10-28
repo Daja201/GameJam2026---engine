@@ -41,6 +41,54 @@
           "description": "Reach work"
         }
       ]
+    },
+    {
+      "id": "ask_local_1",
+      "title": "Ask Other Locals for Help",
+      "description": "Find the local at [11, 11] and ask for help.",
+      "objectives": [
+        {
+          "id": "find_local_1",
+          "type": "reach_location",
+          "screenId": "world",
+          "x": 368,
+          "y": 368,
+          "radius": 18,
+          "description": "Find the local at [11, 11]"
+        }
+      ]
+    },
+    {
+      "id": "ask_local_2",
+      "title": "Ask Other Locals for Help",
+      "description": "Find the local at [0, 16] and ask for help.",
+      "objectives": [
+        {
+          "id": "find_local_2",
+          "type": "reach_location",
+          "screenId": "world",
+          "x": 16,
+          "y": 528,
+          "radius": 18,
+          "description": "Find the local at [0, 16]"
+        }
+      ]
+    },
+    {
+      "id": "ask_local_3",
+      "title": "Ask Other Locals for Help",
+      "description": "Find the local at [27, 20] and ask for help.",
+      "objectives": [
+        {
+          "id": "find_local_3",
+          "type": "reach_location",
+          "screenId": "world",
+          "x": 880,
+          "y": 656,
+          "radius": 18,
+          "description": "Find the local at [27, 20]"
+        }
+      ]
     }
   ]
 }

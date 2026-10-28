@@ -27,8 +27,8 @@
             "scale": 0.8989,
             "selectedLayer": 2,
             "viewCenter": {
-                "x": 645.7892980309266,
-                "y": 260.8744020469463
+                "x": 209.70074535543444,
+                "y": 573.4786961842251
             }
         },
         "graphics/backgrounds/city/city.json#CityTileset": {
@@ -57,11 +57,11 @@
             }
         },
         "graphics/backgrounds/under/under.tmj": {
-            "scale": 0.85,
+            "scale": 0.9005,
             "selectedLayer": 1,
             "viewCenter": {
-                "x": 617.0588235294117,
-                "y": 202.94117647058823
+                "x": 462.52082176568575,
+                "y": 182.6762909494725
             }
         },
         "graphics/backgrounds/under/under.tmj#city": {
